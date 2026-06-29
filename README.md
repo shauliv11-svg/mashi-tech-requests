@@ -30,3 +30,24 @@ http://localhost:3000
 ## הערה חשובה
 
 כרגע זה MVP עם נתוני דמו בצד הלקוח. לגרסה אמיתית צריך לחבר בסיס נתונים, התחברות אמיתית ושליחת מיילים.
+
+## חיבור Supabase
+
+1. יוצרים פרויקט חדש ב-Supabase.
+2. נכנסים ל-SQL Editor ומריצים את הקובץ:
+
+```text
+supabase/schema.sql
+```
+
+3. מעתיקים את Project URL ואת anon public key מתוך Project Settings -> API.
+4. מוסיפים ל-Vercel תחת Project Settings -> Environment Variables:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+```
+
+5. מפעילים Redeploy ב-Vercel.
+
+אם משתני הסביבה לא מוגדרים, האפליקציה ממשיכה לעבוד עם נתוני הדמו המקומיים.

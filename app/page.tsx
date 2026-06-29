@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "staff" | "handler" | "admin";
 type View = "login" | "myRequests" | "newRequest" | "manageRequests" | "users" | "students";
@@ -183,6 +184,13 @@ function today() {
   return new Intl.DateTimeFormat("he-IL").format(new Date());
 }
 
+function displayDate(value?: string) {
+  if (!value) return today();
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("he-IL").format(parsed);
+}
+
 function parseClassList(value: string) {
   return value
     .split(",")
@@ -196,6 +204,93 @@ function formatClassList(classNames?: string[]) {
 
 function isAppleDevice(deviceType?: DeviceType) {
   return deviceType === "אייפד" || deviceType === "אייפד פרו";
+}
+
+function mapUser(row: any): User {
+  return {
+    id: Number(row.id),
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    classNames: row.class_names ?? [],
+    active: row.active
+  };
+}
+
+function mapStudent(row: any): Student {
+  return {
+    id: Number(row.id),
+    fullName: row.full_name,
+    className: row.class_name,
+    deviceType: row.device_type ?? undefined,
+    careProvider: row.care_provider ?? undefined,
+    accessibilityDate: row.accessibility_date ?? undefined,
+    deviceResponsibility: row.device_responsibility ?? undefined,
+    accessories: row.accessories ?? undefined,
+    appleId: row.apple_id ?? undefined,
+    applePassword: row.apple_password ?? undefined,
+    active: row.active
+  };
+}
+
+function mapRequest(row: any): TechRequest {
+  return {
+    id: Number(row.id),
+    requesterId: Number(row.requester_id),
+    subjectType: row.subject_type,
+    studentId: row.student_id ? Number(row.student_id) : undefined,
+    subjectName: row.subject_name,
+    className: row.class_name,
+    requestType: row.request_type,
+    description: row.description,
+    attempted: row.attempted ?? "",
+    status: row.status,
+    createdAt: displayDate(row.created_at),
+    internalNote: row.internal_note ?? undefined,
+    closingMessage: row.closing_message ?? undefined
+  };
+}
+
+function userPayload(user: User) {
+  return {
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    class_names: user.classNames ?? [],
+    active: user.active
+  };
+}
+
+function studentPayload(student: Student) {
+  return {
+    full_name: student.fullName,
+    class_name: student.className,
+    device_type: student.deviceType ?? null,
+    care_provider: student.careProvider ?? null,
+    accessibility_date: student.accessibilityDate || null,
+    device_responsibility: student.deviceResponsibility || null,
+    accessories: student.accessories || null,
+    apple_id: student.appleId || null,
+    apple_password: student.applePassword || null,
+    active: student.active
+  };
+}
+
+function requestPayload(request: TechRequest) {
+  return {
+    requester_id: request.requesterId,
+    subject_type: request.subjectType,
+    student_id: request.studentId ?? null,
+    subject_name: request.subjectName,
+    class_name: request.className,
+    request_type: request.requestType,
+    description: request.description,
+    attempted: request.attempted,
+    status: request.status,
+    internal_note: request.internalNote ?? null,
+    closing_message: request.closingMessage ?? null,
+    updated_at: new Date().toISOString()
+  };
 }
 
 export default function Home() {
@@ -236,6 +331,152 @@ export default function Home() {
     setCurrentUserId(null);
     setView("login");
     setToast("");
+  }
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    async function loadData() {
+      const [usersResult, studentsResult, requestsResult] = await Promise.all([
+        supabase!.from("app_users").select("*").order("id"),
+        supabase!.from("students").select("*").order("full_name"),
+        supabase!.from("tech_requests").select("*").order("created_at", { ascending: false })
+      ]);
+
+      if (usersResult.error || studentsResult.error || requestsResult.error) {
+        showToast("לא הצלחתי לטעון נתונים מ-Supabase, מוצגים נתוני דמו מקומיים.");
+        return;
+      }
+
+      setUsers((usersResult.data ?? []).map(mapUser));
+      setStudents((studentsResult.data ?? []).map(mapStudent));
+      setRequests((requestsResult.data ?? []).map(mapRequest));
+      setSelectedRequestId(requestsResult.data?.[0]?.id ? Number(requestsResult.data[0].id) : null);
+      showToast("הנתונים נטענו מהדאטה בייס.");
+    }
+
+    loadData();
+  }, []);
+
+  async function createRequest(request: TechRequest) {
+    if (!isSupabaseConfigured || !supabase) {
+      setRequests((items) => [request, ...items]);
+      setSelectedRequestId(request.id);
+      showToast("הבקשה נשלחה ונשמרה כבקשה חדשה.");
+      navigate(canManage ? "manageRequests" : "myRequests");
+      return;
+    }
+
+    const { data, error } = await supabase.from("tech_requests").insert(requestPayload(request)).select("*").single();
+    if (error) {
+      showToast("שמירת הבקשה בדאטה בייס נכשלה.");
+      return;
+    }
+    const saved = mapRequest(data);
+    setRequests((items) => [saved, ...items]);
+    setSelectedRequestId(saved.id);
+    showToast("הבקשה נשמרה בדאטה בייס.");
+    navigate(canManage ? "manageRequests" : "myRequests");
+  }
+
+  async function updateRequest(updated: TechRequest, successMessage = "השינוי נשמר בדאטה בייס.") {
+    if (!isSupabaseConfigured || !supabase) {
+      setRequests((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+      setSelectedRequestId(updated.id);
+      showToast(successMessage);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("tech_requests")
+      .update(requestPayload(updated))
+      .eq("id", updated.id)
+      .select("*")
+      .single();
+    if (error) {
+      showToast("שמירת הבקשה בדאטה בייס נכשלה.");
+      return;
+    }
+    const saved = mapRequest(data);
+    setRequests((items) => items.map((item) => (item.id === saved.id ? saved : item)));
+    setSelectedRequestId(saved.id);
+    showToast(successMessage);
+  }
+
+  async function createUser(user: User) {
+    if (!isSupabaseConfigured || !supabase) {
+      setUsers((items) => [...items, user]);
+      showToast("המשתמשת נוספה לרשימת ההזמנות.");
+      return;
+    }
+    const { data, error } = await supabase.from("app_users").insert(userPayload(user)).select("*").single();
+    if (error) {
+      showToast("שמירת המשתמשת בדאטה בייס נכשלה.");
+      return;
+    }
+    setUsers((items) => [...items, mapUser(data)]);
+    showToast("המשתמשת נשמרה בדאטה בייס.");
+  }
+
+  async function patchUser(id: number, patch: Partial<User>) {
+    const current = users.find((user) => user.id === id);
+    if (!current) return;
+    const updated = { ...current, ...patch };
+    if (!isSupabaseConfigured || !supabase) {
+      setUsers((items) => items.map((item) => (item.id === id ? updated : item)));
+      return;
+    }
+    const { data, error } = await supabase.from("app_users").update(userPayload(updated)).eq("id", id).select("*").single();
+    if (error) {
+      showToast("שמירת המשתמשת בדאטה בייס נכשלה.");
+      return;
+    }
+    setUsers((items) => items.map((item) => (item.id === id ? mapUser(data) : item)));
+  }
+
+  async function createStudent(student: Student) {
+    if (!isSupabaseConfigured || !supabase) {
+      setStudents((items) => [...items, student]);
+      showToast("התלמיד/ה נוספו לרשימה.");
+      return;
+    }
+    const { data, error } = await supabase.from("students").insert(studentPayload(student)).select("*").single();
+    if (error) {
+      showToast("שמירת התלמיד/ה בדאטה בייס נכשלה.");
+      return;
+    }
+    setStudents((items) => [...items, mapStudent(data)]);
+    showToast("התלמיד/ה נשמרו בדאטה בייס.");
+  }
+
+  async function updateStudent(student: Student) {
+    if (!isSupabaseConfigured || !supabase) {
+      setStudents((items) => items.map((item) => (item.id === student.id ? student : item)));
+      showToast("פרטי התלמיד/ה נשמרו.");
+      return;
+    }
+    const { data, error } = await supabase.from("students").update(studentPayload(student)).eq("id", student.id).select("*").single();
+    if (error) {
+      showToast("שמירת התלמיד/ה בדאטה בייס נכשלה.");
+      return;
+    }
+    setStudents((items) => items.map((item) => (item.id === student.id ? mapStudent(data) : item)));
+    showToast("פרטי התלמיד/ה נשמרו בדאטה בייס.");
+  }
+
+  async function importStudents(newStudents: Student[]) {
+    if (!isSupabaseConfigured || !supabase) {
+      setStudents((items) => [...items, ...newStudents]);
+      showToast(`${newStudents.length} תלמידים נוספו מהרשימה שהודבקה.`);
+      return;
+    }
+    const { data, error } = await supabase.from("students").insert(newStudents.map(studentPayload)).select("*");
+    if (error) {
+      showToast("יבוא התלמידים לדאטה בייס נכשל.");
+      return;
+    }
+    setStudents((items) => [...items, ...(data ?? []).map(mapStudent)]);
+    showToast(`${data?.length ?? 0} תלמידים נשמרו בדאטה בייס.`);
   }
 
   return (
@@ -307,12 +548,7 @@ export default function Home() {
           <NewRequest
             students={students}
             currentUser={currentUser}
-            onCreate={(request) => {
-              setRequests((items) => [request, ...items]);
-              setSelectedRequestId(request.id);
-              showToast("הבקשה נשלחה ונשמרה כבקשה חדשה.");
-              navigate(canManage ? "manageRequests" : "myRequests");
-            }}
+            onCreate={createRequest}
           />
         )}
         {view === "manageRequests" && canManage && (
@@ -322,51 +558,24 @@ export default function Home() {
             selectedRequest={selectedRequest}
             selectedRequestStudent={selectedRequestStudent}
             onSelect={setSelectedRequestId}
-            onUpdate={(updated) => {
-              setRequests((items) => items.map((item) => (item.id === updated.id ? updated : item)));
-              setSelectedRequestId(updated.id);
-            }}
-            onClose={(updated) => {
-              setRequests((items) => items.map((item) => (item.id === updated.id ? updated : item)));
-              setSelectedRequestId(updated.id);
-              showToast("הבקשה נסגרה. נרשם תיעוד לשליחת מייל למגישה.");
-            }}
+            onUpdate={(updated) => updateRequest(updated)}
+            onClose={(updated) => updateRequest(updated, "הבקשה נסגרה ונשמרה בדאטה בייס.")}
           />
         )}
         {view === "users" && role === "admin" && (
           <UsersAdmin
             users={users}
-            onInvite={(user) => {
-              setUsers((items) => [...items, user]);
-              showToast("המשתמשת נוספה לרשימת ההזמנות.");
-            }}
-            onRoleChange={(id, nextRole) => {
-              setUsers((items) => items.map((item) => (item.id === id ? { ...item, role: nextRole } : item)));
-            }}
-            onClassChange={(id, classNamesText) => {
-              setUsers((items) =>
-                items.map((item) =>
-                  item.id === id ? { ...item, classNames: parseClassList(classNamesText) } : item
-                )
-              );
-            }}
+            onInvite={createUser}
+            onRoleChange={(id, nextRole) => patchUser(id, { role: nextRole })}
+            onClassChange={(id, classNamesText) => patchUser(id, { classNames: parseClassList(classNamesText) })}
           />
         )}
         {view === "students" && role === "admin" && (
           <StudentsAdmin
             students={students}
-            onAdd={(student) => {
-              setStudents((items) => [...items, student]);
-              showToast("התלמיד/ה נוספו לרשימה.");
-            }}
-            onUpdate={(student) => {
-              setStudents((items) => items.map((item) => (item.id === student.id ? student : item)));
-              showToast("פרטי התלמיד/ה נשמרו.");
-            }}
-            onImport={(newStudents) => {
-              setStudents((items) => [...items, ...newStudents]);
-              showToast(`${newStudents.length} תלמידים נוספו מהרשימה שהודבקה.`);
-            }}
+            onAdd={createStudent}
+            onUpdate={updateStudent}
+            onImport={importStudents}
           />
         )}
       </section>
@@ -448,7 +657,7 @@ function NewRequest({
 }: {
   students: Student[];
   currentUser: User;
-  onCreate: (request: TechRequest) => void;
+  onCreate: (request: TechRequest) => void | Promise<void>;
 }) {
   const activeStudents = students.filter((student) => student.active);
   const [subjectType, setSubjectType] = useState<SubjectType>("student");
@@ -564,8 +773,8 @@ function ManageRequests({
   selectedRequest?: TechRequest;
   selectedRequestStudent?: Student;
   onSelect: (id: number) => void;
-  onUpdate: (request: TechRequest) => void;
-  onClose: (request: TechRequest) => void;
+  onUpdate: (request: TechRequest) => void | Promise<void>;
+  onClose: (request: TechRequest) => void | Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<RequestStatus | "all">("all");
@@ -649,8 +858,8 @@ function RequestDetails({
   request?: TechRequest;
   requester?: User;
   student?: Student;
-  onUpdate: (request: TechRequest) => void;
-  onClose: (request: TechRequest) => void;
+  onUpdate: (request: TechRequest) => void | Promise<void>;
+  onClose: (request: TechRequest) => void | Promise<void>;
 }) {
   const [note, setNote] = useState("");
 
@@ -750,7 +959,7 @@ function CloseRequestModal({
 }: {
   request: TechRequest;
   onCancel: () => void;
-  onClose: (request: TechRequest) => void;
+  onClose: (request: TechRequest) => void | Promise<void>;
 }) {
   const [internalNote, setInternalNote] = useState(request.internalNote ?? "");
   const [message, setMessage] = useState("");
@@ -812,9 +1021,9 @@ function UsersAdmin({
   onClassChange
 }: {
   users: User[];
-  onInvite: (user: User) => void;
-  onRoleChange: (id: number, role: Role) => void;
-  onClassChange: (id: number, classNamesText: string) => void;
+  onInvite: (user: User) => void | Promise<void>;
+  onRoleChange: (id: number, role: Role) => void | Promise<void>;
+  onClassChange: (id: number, classNamesText: string) => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -929,9 +1138,9 @@ function StudentsAdmin({
   onImport
 }: {
   students: Student[];
-  onAdd: (student: Student) => void;
-  onUpdate: (student: Student) => void;
-  onImport: (students: Student[]) => void;
+  onAdd: (student: Student) => void | Promise<void>;
+  onUpdate: (student: Student) => void | Promise<void>;
+  onImport: (students: Student[]) => void | Promise<void>;
 }) {
   const [editingStudentId, setEditingStudentId] = useState<number | "new">("new");
   const editingStudent = students.find((student) => student.id === editingStudentId);
