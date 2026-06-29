@@ -894,16 +894,16 @@ function UsersAdmin({
             <tbody>
               {users.map((user) => (
                 <tr key={user.id}>
-                  <td>{user.name}</td>
-                  <td>{user.email}</td>
-                  <td>
+                  <td data-label="שם">{user.name}</td>
+                  <td data-label="מייל">{user.email}</td>
+                  <td data-label="תפקיד">
                     <select value={user.role} onChange={(event) => onRoleChange(user.id, event.target.value as Role)}>
                       <option value="staff">צוות</option>
                       <option value="handler">מטפל/ת בבקשות</option>
                       <option value="admin">אדמין</option>
                     </select>
                   </td>
-                  <td>
+                  <td data-label="כיתות משויכות">
                     <input
                       value={formatClassList(user.classNames)}
                       onChange={(event) => onClassChange(user.id, event.target.value)}
@@ -911,7 +911,7 @@ function UsersAdmin({
                       disabled={user.role !== "staff"}
                     />
                   </td>
-                  <td>{user.active ? "פעיל" : "מושבת"}</td>
+                  <td data-label="סטטוס">{user.active ? "פעיל" : "מושבת"}</td>
                 </tr>
               ))}
             </tbody>
@@ -1114,13 +1114,13 @@ function StudentsAdmin({
             <tbody>
               {students.map((student) => (
                 <tr key={student.id}>
-                  <td>{student.fullName}</td>
-                  <td>{student.className}</td>
-                  <td>{student.deviceType ?? "-"}</td>
-                  <td>{student.careProvider ?? "-"}</td>
-                  <td>{student.accessibilityDate ?? "-"}</td>
-                  <td>{student.active ? "פעיל" : "מושבת"}</td>
-                  <td><button className="btn" onClick={() => loadStudent(student)}>עריכה</button></td>
+                  <td data-label="שם תלמיד/ה">{student.fullName}</td>
+                  <td data-label="כיתה">{student.className}</td>
+                  <td data-label="סוג מכשיר">{student.deviceType ?? "-"}</td>
+                  <td data-label="גורם מטפל">{student.careProvider ?? "-"}</td>
+                  <td data-label="תאריך הנגשה">{student.accessibilityDate ?? "-"}</td>
+                  <td data-label="סטטוס">{student.active ? "פעיל" : "מושבת"}</td>
+                  <td data-label="פעולה"><button className="btn" onClick={() => loadStudent(student)}>עריכה</button></td>
                 </tr>
               ))}
             </tbody>
@@ -1169,14 +1169,14 @@ function RequestsTable({
               const requester = users.find((user) => user.id === request.requesterId);
               return (
                 <tr key={request.id}>
-                  <td>#{request.id}</td>
-                  <td>{request.subjectName}</td>
-                  <td>{request.className}</td>
-                  <td>{request.requestType}</td>
-                  <td>{requester?.name ?? "לא ידוע"}</td>
-                  <td><StatusPill status={request.status} /></td>
-                  <td>{request.createdAt}</td>
-                  <td>
+                  <td data-label="מס׳">#{request.id}</td>
+                  <td data-label="עבור">{request.subjectName}</td>
+                  <td data-label="כיתה">{request.className}</td>
+                  <td data-label="סוג">{request.requestType}</td>
+                  <td data-label="מגישה">{requester?.name ?? "לא ידוע"}</td>
+                  <td data-label="סטטוס"><StatusPill status={request.status} /></td>
+                  <td data-label="נפתחה">{request.createdAt}</td>
+                  <td data-label="פעולה">
                     <button className="btn" onClick={() => onOpen(request.id)}>
                       צפייה
                     </button>
