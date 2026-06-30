@@ -346,15 +346,26 @@ export default function Home() {
 
   async function sendMagicLink(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
-    const approvedUser = users.find((user) => user.email.toLowerCase() === normalizedEmail && user.active);
-
-    if (!approvedUser) {
-      showToast("המייל לא רשום במערכת או שהמשתמשת אינה פעילה. פנו לאדמין.");
-      return;
-    }
 
     if (!supabase) {
       showToast("Supabase לא מוגדר בסביבה הזו.");
+      return;
+    }
+
+    const { data: approvedUsers, error: approvalError } = await supabase
+      .from("app_users")
+      .select("id")
+      .eq("email", normalizedEmail)
+      .eq("active", true)
+      .limit(1);
+
+    if (approvalError) {
+      showToast("לא הצלחנו לבדוק הרשאות משתמשת. נסו שוב בעוד רגע.");
+      return;
+    }
+
+    if (!approvedUsers?.length) {
+      showToast("המייל לא רשום במערכת או שהמשתמשת אינה פעילה. פנו לאדמין.");
       return;
     }
 
