@@ -302,6 +302,7 @@ export default function Home() {
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(101);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [dataLoaded, setDataLoaded] = useState(!isSupabaseConfigured);
   const [toast, setToast] = useState("");
 
   const currentUser = users.find((user) => user.id === currentUserId) ?? null;
@@ -391,7 +392,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || authLoading) return;
+    if (!isSupabaseConfigured || authLoading || !dataLoaded) return;
     if (!authEmail) {
       setCurrentUserId(null);
       setView("login");
@@ -407,7 +408,7 @@ export default function Home() {
 
     setCurrentUserId(approvedUser.id);
     setView((currentView) => currentView === "login" ? (approvedUser.role === "staff" ? "myRequests" : "manageRequests") : currentView);
-  }, [authEmail, authLoading, users]);
+  }, [authEmail, authLoading, dataLoaded, users]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -421,6 +422,7 @@ export default function Home() {
 
       if (usersResult.error || studentsResult.error || requestsResult.error) {
         showToast("לא הצלחתי לטעון נתונים מ-Supabase, מוצגים נתוני דמו מקומיים.");
+        setDataLoaded(true);
         return;
       }
 
@@ -428,6 +430,7 @@ export default function Home() {
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
       setSelectedRequestId(requestsResult.data?.[0]?.id ? Number(requestsResult.data[0].id) : null);
+      setDataLoaded(true);
       showToast("הנתונים נטענו מהדאטה בייס.");
     }
 
@@ -621,7 +624,7 @@ export default function Home() {
             onLogin={login}
             onMagicLink={sendMagicLink}
             isMagicLinkMode={isSupabaseConfigured}
-            isLoading={authLoading}
+            isLoading={authLoading || (isSupabaseConfigured && !dataLoaded)}
           />
         )}
         {view === "myRequests" && currentUser && (
