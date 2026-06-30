@@ -52,15 +52,20 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 אם משתני הסביבה לא מוגדרים, האפליקציה ממשיכה לעבוד עם נתוני הדמו המקומיים.
 
-## Supabase Auth - magic links
+## Supabase Auth - email and password
 
-In Supabase, go to Authentication -> URL Configuration and set:
+The production app uses Supabase Auth with email/password login.
+
+Recommended Supabase settings:
+
+1. Go to Authentication -> URL Configuration.
+2. Set Site URL:
 
 ```text
-Site URL: https://mashi-tech-requests.vercel.app
+https://mashi-tech-requests.vercel.app
 ```
 
-Add these Redirect URLs:
+3. Add Redirect URLs:
 
 ```text
 https://mashi-tech-requests.vercel.app
@@ -68,4 +73,7 @@ http://localhost:3000
 http://localhost:3001
 ```
 
-Users must exist and be active in the `app_users` table before they can request a magic login link.
+4. Users must exist and be active in `app_users` before they can create a password or log in.
+5. First-time users use the "יצירת סיסמה" flow. Existing users use "כניסה".
+6. Password reset uses the "איפוס סיסמה" flow.
+

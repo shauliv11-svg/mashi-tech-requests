@@ -303,6 +303,7 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [dataLoaded, setDataLoaded] = useState(!isSupabaseConfigured);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
   const [toast, setToast] = useState("");
 
@@ -344,12 +345,12 @@ export default function Home() {
     setToast("");
   }
 
-  async function sendMagicLink(email: string) {
+  async function ensureApprovedEmail(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!supabase) {
       showToast("Supabase לא מוגדר בסביבה הזו.");
-      return;
+      return null;
     }
 
     const { data: approvedUsers, error: approvalError } = await supabase
@@ -361,27 +362,81 @@ export default function Home() {
 
     if (approvalError) {
       showToast("לא הצלחנו לבדוק הרשאות משתמשת. נסו שוב בעוד רגע.");
-      return;
+      return null;
     }
 
     if (!approvedUsers?.length) {
       showToast("המייל לא רשום במערכת או שהמשתמשת אינה פעילה. פנו לאדמין.");
+      return null;
+    }
+
+    return normalizedEmail;
+  }
+
+  async function signInWithPassword(email: string, password: string) {
+    const normalizedEmail = await ensureApprovedEmail(email);
+    if (!normalizedEmail || !supabase) return;
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password
+    });
+
+    if (error) {
+      showToast("הכניסה נכשלה. בדקו מייל וסיסמה, או הגדירו סיסמה חדשה.");
       return;
     }
 
-    const { error } = await supabase.auth.signInWithOtp({
+    showToast("נכנסת למערכת.");
+  }
+
+  async function createPassword(email: string, password: string) {
+    const normalizedEmail = await ensureApprovedEmail(email);
+    if (!normalizedEmail || !supabase) return;
+
+    const { error } = await supabase.auth.signUp({
       email: normalizedEmail,
+      password,
       options: {
         emailRedirectTo: window.location.origin
       }
     });
 
     if (error) {
-      showToast("שליחת קישור הכניסה נכשלה. נסו שוב בעוד רגע.");
+      showToast("לא הצלחנו ליצור סיסמה. אם כבר נוצר חשבון, השתמשו באיפוס סיסמה.");
       return;
     }
 
-    showToast("שלחנו קישור כניסה למייל.");
+    showToast("החשבון נוצר. אם נשלח מייל אישור, אשרו אותו ואז התחברו עם הסיסמה.");
+  }
+
+  async function sendPasswordReset(email: string) {
+    const normalizedEmail = await ensureApprovedEmail(email);
+    if (!normalizedEmail || !supabase) return;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: window.location.origin
+    });
+
+    if (error) {
+      showToast("שליחת איפוס הסיסמה נכשלה. נסו שוב בעוד רגע.");
+      return;
+    }
+
+    showToast("שלחנו קישור לאיפוס סיסמה למייל.");
+  }
+
+  async function updatePassword(password: string) {
+    if (!supabase) return;
+    const { error } = await supabase.auth.updateUser({ password });
+
+    if (error) {
+      showToast("עדכון הסיסמה נכשל. פתחו שוב את קישור האיפוס ונסו שוב.");
+      return;
+    }
+
+    setPasswordRecovery(false);
+    showToast("הסיסמה עודכנה. אפשר להמשיך למערכת.");
   }
 
   useEffect(() => {
@@ -404,7 +459,11 @@ export default function Home() {
       setAuthLoading(false);
     });
 
-    const { data: listener } = authClient.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = authClient.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+        setView("login");
+      }
       setAuthEmail(session?.user.email ?? null);
       if (session?.user.email) {
         setAuthNotice("");
@@ -652,8 +711,12 @@ export default function Home() {
           <LoginScreen
             users={users}
             onLogin={login}
-            onMagicLink={sendMagicLink}
-            isMagicLinkMode={isSupabaseConfigured}
+            onPasswordLogin={signInWithPassword}
+            onCreatePassword={createPassword}
+            onPasswordReset={sendPasswordReset}
+            onUpdatePassword={updatePassword}
+            isPasswordMode={isSupabaseConfigured}
+            isPasswordRecovery={passwordRecovery}
             isLoading={authLoading || (isSupabaseConfigured && !dataLoaded)}
             authNotice={authNotice}
           />
@@ -712,15 +775,23 @@ export default function Home() {
 function LoginScreen({
   users,
   onLogin,
-  onMagicLink,
-  isMagicLinkMode,
+  onPasswordLogin,
+  onCreatePassword,
+  onPasswordReset,
+  onUpdatePassword,
+  isPasswordMode,
+  isPasswordRecovery,
   isLoading,
   authNotice
 }: {
   users: User[];
   onLogin: (userId: number) => void;
-  onMagicLink: (email: string) => void | Promise<void>;
-  isMagicLinkMode: boolean;
+  onPasswordLogin: (email: string, password: string) => void | Promise<void>;
+  onCreatePassword: (email: string, password: string) => void | Promise<void>;
+  onPasswordReset: (email: string) => void | Promise<void>;
+  onUpdatePassword: (password: string) => void | Promise<void>;
+  isPasswordMode: boolean;
+  isPasswordRecovery: boolean;
   isLoading: boolean;
   authNotice: string;
 }) {
@@ -728,14 +799,25 @@ function LoginScreen({
   const [selectedUserId, setSelectedUserId] = useState(activeUsers[0]?.id ?? 0);
   const selectedUser = activeUsers.find((user) => user.id === selectedUserId);
   const [email, setEmail] = useState("");
-  const [isSending, setIsSending] = useState(false);
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"login" | "create" | "reset">("login");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function submitMagicLink(event: FormEvent<HTMLFormElement>) {
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!email.trim()) return;
-    setIsSending(true);
-    await onMagicLink(email);
-    setIsSending(false);
+    setIsSubmitting(true);
+
+    if (isPasswordRecovery) {
+      await onUpdatePassword(password);
+    } else if (mode === "login") {
+      await onPasswordLogin(email, password);
+    } else if (mode === "create") {
+      await onCreatePassword(email, password);
+    } else {
+      await onPasswordReset(email);
+    }
+
+    setIsSubmitting(false);
   }
 
   if (isLoading) {
@@ -747,32 +829,72 @@ function LoginScreen({
     );
   }
 
-  if (isMagicLinkMode) {
+  if (isPasswordMode) {
+    const title = isPasswordRecovery ? "הגדרת סיסמה חדשה" : "כניסה למערכת";
+    const subtitle = isPasswordRecovery
+      ? "בחרו סיסמה חדשה לחשבון."
+      : mode === "create"
+        ? "הגדירו סיסמה למייל שכבר אושר במערכת."
+        : mode === "reset"
+          ? "הכניסו מייל ונשלח קישור לאיפוס סיסמה."
+          : "היכנסו עם מייל וסיסמה.";
+
     return (
       <>
-        <Topbar title="כניסה למערכת" subtitle="הכניסו מייל רשום ונשלח קישור כניסה חד פעמי." />
+        <Topbar title={title} subtitle={subtitle} />
         <section className="panel">
           <div className="panel-body">
             {authNotice && <div className="toast">{authNotice}</div>}
-            <form className="form-grid" onSubmit={submitMagicLink}>
+            <form className="form-grid" onSubmit={submitPassword}>
+              {!isPasswordRecovery && (
+                <div className="field full">
+                  <label htmlFor="loginEmail">מייל בית ספרי</label>
+                  <input
+                    id="loginEmail"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="name@mashi.school"
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+              )}
+              {mode !== "reset" && (
+                <div className="field full">
+                  <label htmlFor="loginPassword">סיסמה</label>
+                  <input
+                    id="loginPassword"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={isPasswordRecovery || mode === "create" ? "new-password" : "current-password"}
+                    minLength={6}
+                    required
+                  />
+                </div>
+              )}
               <div className="field full">
-                <label htmlFor="loginEmail">מייל בית ספרי</label>
-                <input
-                  id="loginEmail"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="name@mashi.school"
-                  autoComplete="email"
-                  required
-                />
-              </div>
-              <div className="field full">
-                <button className="btn primary" type="submit" disabled={isSending}>
-                  {isSending ? "שולח..." : "שליחת קישור כניסה"}
+                <button className="btn primary" type="submit" disabled={isSubmitting}>
+                  {isSubmitting
+                    ? "שומר..."
+                    : isPasswordRecovery
+                      ? "עדכון סיסמה"
+                      : mode === "create"
+                        ? "יצירת סיסמה"
+                        : mode === "reset"
+                          ? "שליחת קישור איפוס"
+                          : "כניסה"}
                 </button>
               </div>
             </form>
+            {!isPasswordRecovery && (
+              <div className="button-row" style={{ marginTop: 12 }}>
+                <button className="btn" type="button" onClick={() => setMode("login")}>כניסה</button>
+                <button className="btn" type="button" onClick={() => setMode("create")}>יצירת סיסמה</button>
+                <button className="btn" type="button" onClick={() => setMode("reset")}>איפוס סיסמה</button>
+              </div>
+            )}
           </div>
         </section>
       </>
