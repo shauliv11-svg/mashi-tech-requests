@@ -695,3 +695,18 @@ body {
     gap: 4px;
   }
 }
+
+.current-user {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4fbf7;
+}
+
+.current-user span {
+  color: #bdd3c9;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}

@@ -51,3 +51,21 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 5. מפעילים Redeploy ב-Vercel.
 
 אם משתני הסביבה לא מוגדרים, האפליקציה ממשיכה לעבוד עם נתוני הדמו המקומיים.
+
+## Supabase Auth - magic links
+
+In Supabase, go to Authentication -> URL Configuration and set:
+
+```text
+Site URL: https://mashi-tech-requests.vercel.app
+```
+
+Add these Redirect URLs:
+
+```text
+https://mashi-tech-requests.vercel.app
+http://localhost:3000
+http://localhost:3001
+```
+
+Users must exist and be active in the `app_users` table before they can request a magic login link.

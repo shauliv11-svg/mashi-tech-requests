@@ -300,6 +300,8 @@ export default function Home() {
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [requests, setRequests] = useState<TechRequest[]>(initialRequests);
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(101);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [toast, setToast] = useState("");
 
   const currentUser = users.find((user) => user.id === currentUserId) ?? null;
@@ -327,11 +329,85 @@ export default function Home() {
     showToast(`נכנסת בתור ${user.name} (${roleLabels[user.role]}).`);
   }
 
-  function logout() {
+  async function logout() {
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+      setAuthEmail(null);
+    }
     setCurrentUserId(null);
     setView("login");
     setToast("");
   }
+
+  async function sendMagicLink(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const approvedUser = users.find((user) => user.email.toLowerCase() === normalizedEmail && user.active);
+
+    if (!approvedUser) {
+      showToast("המייל לא רשום במערכת או שהמשתמשת אינה פעילה. פנו לאדמין.");
+      return;
+    }
+
+    if (!supabase) {
+      showToast("Supabase לא מוגדר בסביבה הזו.");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: normalizedEmail,
+      options: {
+        emailRedirectTo: window.location.origin
+      }
+    });
+
+    if (error) {
+      showToast("שליחת קישור הכניסה נכשלה. נסו שוב בעוד רגע.");
+      return;
+    }
+
+    showToast("שלחנו קישור כניסה למייל.");
+  }
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setAuthLoading(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthEmail(data.session?.user.email ?? null);
+      setAuthLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthEmail(session?.user.email ?? null);
+      if (!session) {
+        setCurrentUserId(null);
+        setView("login");
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || authLoading) return;
+    if (!authEmail) {
+      setCurrentUserId(null);
+      setView("login");
+      return;
+    }
+
+    const approvedUser = users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active);
+    if (!approvedUser) {
+      showToast("המשתמשת מחוברת ב-Supabase אך אינה פעילה במערכת. פנו לאדמין.");
+      supabase?.auth.signOut();
+      return;
+    }
+
+    setCurrentUserId(approvedUser.id);
+    setView((currentView) => currentView === "login" ? (approvedUser.role === "staff" ? "myRequests" : "manageRequests") : currentView);
+  }, [authEmail, authLoading, users]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -510,16 +586,24 @@ export default function Home() {
           </nav>
         )}
 
-        {isAuthenticated && (
+        {isAuthenticated && currentUser && (
           <div className="role-switcher">
-            <label htmlFor="demoUser">משתמשת מחוברת</label>
-            <select id="demoUser" value={currentUser?.id} onChange={(event) => login(Number(event.target.value))}>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name} - {roleLabels[user.role]}
-                </option>
-              ))}
-            </select>
+            <label htmlFor={isSupabaseConfigured ? "currentUser" : "demoUser"}>משתמשת מחוברת</label>
+            {isSupabaseConfigured ? (
+              <div className="current-user" id="currentUser">
+                <strong>{currentUser.name}</strong>
+                <span>{currentUser.email}</span>
+                <span>{roleLabels[currentUser.role]}</span>
+              </div>
+            ) : (
+              <select id="demoUser" value={currentUser.id} onChange={(event) => login(Number(event.target.value))}>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name} - {roleLabels[user.role]}
+                  </option>
+                ))}
+              </select>
+            )}
             <button className="nav-button" style={{ marginTop: 10 }} onClick={logout}>
               <span>יציאה</span>
               <span aria-hidden="true">×</span>
@@ -531,7 +615,15 @@ export default function Home() {
       <section className="main">
         {toast && <div className="toast">{toast}</div>}
 
-        {view === "login" && <LoginScreen users={users} onLogin={login} />}
+        {view === "login" && (
+          <LoginScreen
+            users={users}
+            onLogin={login}
+            onMagicLink={sendMagicLink}
+            isMagicLinkMode={isSupabaseConfigured}
+            isLoading={authLoading}
+          />
+        )}
         {view === "myRequests" && currentUser && (
           <MyRequests
             currentUser={currentUser}
@@ -583,14 +675,76 @@ export default function Home() {
   );
 }
 
-function LoginScreen({ users, onLogin }: { users: User[]; onLogin: (userId: number) => void }) {
+function LoginScreen({
+  users,
+  onLogin,
+  onMagicLink,
+  isMagicLinkMode,
+  isLoading
+}: {
+  users: User[];
+  onLogin: (userId: number) => void;
+  onMagicLink: (email: string) => void | Promise<void>;
+  isMagicLinkMode: boolean;
+  isLoading: boolean;
+}) {
   const activeUsers = users.filter((user) => user.active);
   const [selectedUserId, setSelectedUserId] = useState(activeUsers[0]?.id ?? 0);
   const selectedUser = activeUsers.find((user) => user.id === selectedUserId);
+  const [email, setEmail] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  async function submitMagicLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!email.trim()) return;
+    setIsSending(true);
+    await onMagicLink(email);
+    setIsSending(false);
+  }
+
+  if (isLoading) {
+    return (
+      <>
+        <Topbar title="כניסה למערכת" subtitle="בודקים אם יש התחברות פעילה." />
+        <section className="panel"><div className="empty">טוען...</div></section>
+      </>
+    );
+  }
+
+  if (isMagicLinkMode) {
+    return (
+      <>
+        <Topbar title="כניסה למערכת" subtitle="הכניסו מייל רשום ונשלח קישור כניסה חד פעמי." />
+        <section className="panel">
+          <div className="panel-body">
+            <form className="form-grid" onSubmit={submitMagicLink}>
+              <div className="field full">
+                <label htmlFor="loginEmail">מייל בית ספרי</label>
+                <input
+                  id="loginEmail"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="name@mashi.school"
+                  autoComplete="email"
+                  required
+                />
+              </div>
+              <div className="field full">
+                <button className="btn primary" type="submit" disabled={isSending}>
+                  {isSending ? "שולח..." : "שליחת קישור כניסה"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </>
+    );
+  }
 
   return (
     <>
-      <Topbar title="כניסה למערכת" subtitle="ב-MVP הזה בחירת המשתמש מדמה התחברות, והתפקיד שלו קובע את ההרשאות." />
+      <Topbar title="כניסה למערכת" subtitle="מצב דמו מקומי: בחירת המשתמש מדמה התחברות." />
       <section className="panel">
         <div className="panel-body">
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onLogin(selectedUserId); }}>
