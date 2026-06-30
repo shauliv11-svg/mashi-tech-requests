@@ -303,9 +303,13 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [dataLoaded, setDataLoaded] = useState(!isSupabaseConfigured);
+  const [authNotice, setAuthNotice] = useState("");
   const [toast, setToast] = useState("");
 
-  const currentUser = users.find((user) => user.id === currentUserId) ?? null;
+  const authProfile = authEmail
+    ? users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active) ?? null
+    : null;
+  const currentUser = (isSupabaseConfigured ? authProfile : users.find((user) => user.id === currentUserId)) ?? null;
   const role = currentUser?.role ?? "staff";
   const selectedRequest = requests.find((request) => request.id === selectedRequestId);
   const selectedRequestStudent = students.find((student) => student.id === selectedRequest?.studentId);
@@ -375,13 +379,25 @@ export default function Home() {
       return;
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      setAuthEmail(data.session?.user.email ?? null);
+    const authClient = supabase;
+
+    authClient.auth.getSession().then(async ({ data }) => {
+      if (data.session?.user.email) {
+        setAuthEmail(data.session.user.email);
+        setAuthLoading(false);
+        return;
+      }
+
+      const { data: userData } = await authClient.auth.getUser();
+      setAuthEmail(userData.user?.email ?? null);
       setAuthLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = authClient.auth.onAuthStateChange((_event, session) => {
       setAuthEmail(session?.user.email ?? null);
+      if (session?.user.email) {
+        setAuthNotice("");
+      }
       if (!session) {
         setCurrentUserId(null);
         setView("login");
@@ -396,16 +412,19 @@ export default function Home() {
     if (!authEmail) {
       setCurrentUserId(null);
       setView("login");
+      setAuthNotice("");
       return;
     }
 
     const approvedUser = users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active);
     if (!approvedUser) {
-      showToast("המשתמשת מחוברת ב-Supabase אך אינה פעילה במערכת. פנו לאדמין.");
-      supabase?.auth.signOut();
+      setCurrentUserId(null);
+      setView("login");
+      setAuthNotice(`המייל ${authEmail} מחובר ב-Supabase אבל לא מוגדר כמשתמש פעיל במערכת. פנו לאדמין.`);
       return;
     }
 
+    setAuthNotice("");
     setCurrentUserId(approvedUser.id);
     setView((currentView) => currentView === "login" ? (approvedUser.role === "staff" ? "myRequests" : "manageRequests") : currentView);
   }, [authEmail, authLoading, dataLoaded, users]);
@@ -625,6 +644,7 @@ export default function Home() {
             onMagicLink={sendMagicLink}
             isMagicLinkMode={isSupabaseConfigured}
             isLoading={authLoading || (isSupabaseConfigured && !dataLoaded)}
+            authNotice={authNotice}
           />
         )}
         {view === "myRequests" && currentUser && (
@@ -683,13 +703,15 @@ function LoginScreen({
   onLogin,
   onMagicLink,
   isMagicLinkMode,
-  isLoading
+  isLoading,
+  authNotice
 }: {
   users: User[];
   onLogin: (userId: number) => void;
   onMagicLink: (email: string) => void | Promise<void>;
   isMagicLinkMode: boolean;
   isLoading: boolean;
+  authNotice: string;
 }) {
   const activeUsers = users.filter((user) => user.active);
   const [selectedUserId, setSelectedUserId] = useState(activeUsers[0]?.id ?? 0);
@@ -720,6 +742,7 @@ function LoginScreen({
         <Topbar title="כניסה למערכת" subtitle="הכניסו מייל רשום ונשלח קישור כניסה חד פעמי." />
         <section className="panel">
           <div className="panel-body">
+            {authNotice && <div className="toast">{authNotice}</div>}
             <form className="form-grid" onSubmit={submitMagicLink}>
               <div className="field full">
                 <label htmlFor="loginEmail">מייל בית ספרי</label>
