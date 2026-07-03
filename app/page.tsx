@@ -651,9 +651,17 @@ export default function Home() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">משי</div>
+          <div className="brand-mark">
+            <img src="/mashi-logo.png" alt="בית ספר משי" />
+          </div>
           <h1>בקשות טכנולוגיה מסייעת</h1>
           <p>ניהול פניות צוות לבית ספר משי</p>
+          <div className="brand-dots" aria-hidden="true">
+            <span className="dot-yellow" />
+            <span className="dot-lime" />
+            <span className="dot-cyan" />
+            <span className="dot-coral" />
+          </div>
         </div>
 
         {isAuthenticated ? (
@@ -762,6 +770,7 @@ export default function Home() {
         {view === "students" && role === "admin" && (
           <StudentsAdmin
             students={students}
+            requests={requests}
             onAdd={createStudent}
             onUpdate={updateStudent}
             onImport={importStudents}
@@ -824,7 +833,7 @@ function LoginScreen({
     return (
       <>
         <Topbar title="כניסה למערכת" subtitle="בודקים אם יש התחברות פעילה." />
-        <section className="panel"><div className="empty">טוען...</div></section>
+        <section className="panel login-card"><div className="empty">טוען...</div></section>
       </>
     );
   }
@@ -842,7 +851,7 @@ function LoginScreen({
     return (
       <>
         <Topbar title={title} subtitle={subtitle} />
-        <section className="panel">
+        <section className="panel login-card">
           <div className="panel-body">
             {authNotice && <div className="toast">{authNotice}</div>}
             <form className="form-grid" onSubmit={submitPassword}>
@@ -889,11 +898,14 @@ function LoginScreen({
               </div>
             </form>
             {!isPasswordRecovery && (
-              <div className="button-row" style={{ marginTop: 12 }}>
-                <button className="btn" type="button" onClick={() => setMode("login")}>כניסה</button>
-                <button className="btn" type="button" onClick={() => setMode("create")}>יצירת סיסמה</button>
-                <button className="btn" type="button" onClick={() => setMode("reset")}>איפוס סיסמה</button>
-              </div>
+              <>
+                <p className="inline-hint">המערכת פתוחה רק למיילים שאושרו מראש על ידי אדמין.</p>
+                <div className="button-row login-actions" style={{ marginTop: 12 }}>
+                  <button className="btn" type="button" onClick={() => setMode("login")}>כניסה</button>
+                  <button className="btn" type="button" onClick={() => setMode("create")}>יצירת סיסמה</button>
+                  <button className="btn" type="button" onClick={() => setMode("reset")}>איפוס סיסמה</button>
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -904,7 +916,7 @@ function LoginScreen({
   return (
     <>
       <Topbar title="כניסה למערכת" subtitle="מצב דמו מקומי: בחירת המשתמש מדמה התחברות." />
-      <section className="panel">
+      <section className="panel login-card">
         <div className="panel-body">
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onLogin(selectedUserId); }}>
             <div className="field">
@@ -958,7 +970,11 @@ function MyRequests({
   return (
     <>
       <Topbar title="הבקשות שלי" subtitle={subtitle} action={<button className="btn primary" onClick={onNew}>בקשה חדשה</button>} />
-      <RequestsTable requests={myRequests} users={users} onOpen={onOpen} />
+      <section className="panel">
+        <div className="panel-body">
+          <RequestCards requests={myRequests} users={users} selectedId={null} onOpen={onOpen} />
+        </div>
+      </section>
     </>
   );
 }
@@ -1004,8 +1020,8 @@ function NewRequest({
 
   return (
     <>
-      <Topbar title="בקשה חדשה" subtitle="טופס קצר שמיועד לעודד שימוש יומיומי." />
-      <section className="panel">
+      <Topbar title="בקשה חדשה" subtitle="בחרו תלמיד/ה או כיתה, תארו בקצרה את הצורך, והבקשה תעבור לטיפול." />
+      <section className="panel new-request-panel">
         <div className="panel-body">
           <form className="form-grid" onSubmit={submit}>
             <div className="field full">
@@ -1035,12 +1051,13 @@ function NewRequest({
                 <div className="field">
                   <label htmlFor="studentClass">כיתה</label>
                   <input id="studentClass" value={selectedStudent?.className ?? ""} readOnly />
+                  <span className="field-help">הכיתה מתמלאת אוטומטית לפי רשימת התלמידים.</span>
                 </div>
               </>
             ) : (
               <div className="field full">
                 <label htmlFor="classSubject">שם הכיתה / הקבוצה</label>
-                <input id="classSubject" value={classSubject} onChange={(event) => setClassSubject(event.target.value)} placeholder="לדוגמה: כיתה ג׳ תקשורת" />
+                <input id="classSubject" value={classSubject} onChange={(event) => setClassSubject(event.target.value)} placeholder="לדוגמה: כיתה ג׳ תקשורת או קבוצת קריאה" />
               </div>
             )}
 
@@ -1054,11 +1071,11 @@ function NewRequest({
             </div>
             <div className="field full">
               <label htmlFor="description">תיאור הצורך</label>
-              <textarea id="description" value={description} onChange={(event) => setDescription(event.target.value)} required />
+              <textarea id="description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="מה הצורך? מתי זה קורה? מה יעזור לנו להבין את הבקשה?" required />
             </div>
             <div className="field full">
               <label htmlFor="attempted">מה כבר נוסה?</label>
-              <textarea id="attempted" value={attempted} onChange={(event) => setAttempted(event.target.value)} />
+              <textarea id="attempted" value={attempted} onChange={(event) => setAttempted(event.target.value)} placeholder="אם כבר ניסיתם פתרון, החלפתם ציוד או יש מידע נוסף - כתבו כאן." />
             </div>
             <div className="field full">
               <button className="btn primary" type="submit">
@@ -1094,10 +1111,24 @@ function ManageRequests({
   const [closingRequest, setClosingRequest] = useState<TechRequest | null>(null);
 
   const filtered = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
     return requests.filter((request) => {
       const requester = users.find((user) => user.id === request.requesterId);
-      const searchText = `${request.subjectName} ${request.className} ${request.requestType} ${request.description} ${requester?.name ?? ""}`;
-      return searchText.includes(query) && (status === "all" || request.status === status);
+      const searchText = [
+        request.id,
+        request.subjectName,
+        request.className,
+        request.requestType,
+        request.description,
+        request.attempted,
+        request.internalNote,
+        requester?.name,
+        requester?.email,
+        statusLabels[request.status]
+      ].filter(Boolean).join(" ").toLowerCase();
+
+      return searchText.includes(normalizedQuery) && (status === "all" || request.status === status);
     });
   }, [query, requests, status, users]);
 
@@ -1112,29 +1143,29 @@ function ManageRequests({
     <>
       <Topbar title="ניהול בקשות" subtitle="לוח עבודה למעקב, טיפול וסגירת בקשות." />
       <div className="stats-grid">
-        <Stat label="חדשות" value={stats.new} />
-        <Stat label="בטיפול" value={stats.progress} />
-        <Stat label="ממתינות למידע" value={stats.waiting} />
-        <Stat label="נסגרו" value={stats.closed} />
+        <Stat label="חדשות" value={stats.new} tone="new" active={status === "new"} onClick={() => setStatus("new")} />
+        <Stat label="בטיפול" value={stats.progress} tone="progress" active={status === "progress"} onClick={() => setStatus("progress")} />
+        <Stat label="ממתינות למידע" value={stats.waiting} tone="waiting" active={status === "waiting"} onClick={() => setStatus("waiting")} />
+        <Stat label="נסגרו" value={stats.closed} tone="closed" active={status === "closed"} onClick={() => setStatus("closed")} />
       </div>
 
       <div className="request-detail">
         <section className="panel">
           <div className="panel-header">
-            <h3>כל הבקשות</h3>
+            <h3>{status === "all" ? "כל הבקשות" : `בקשות בסטטוס ${statusLabels[status]}`}</h3>
           </div>
           <div className="panel-body">
-            <div className="filters two">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="חיפוש לפי תלמיד, כיתה או מגישה" />
-              <select value={status} onChange={(event) => setStatus(event.target.value as RequestStatus | "all")}>
-                <option value="all">כל הסטטוסים</option>
-                <option value="new">חדשה</option>
-                <option value="progress">בטיפול</option>
-                <option value="waiting">ממתינה למידע</option>
-                <option value="closed">נסגרה</option>
-              </select>
+            <div className="filters request-filters">
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="חיפוש לפי מס׳ פנייה, תלמיד, כיתה, סוג, מגישה או תוכן הבקשה" />
+              <div className="filter-chips" aria-label="סינון לפי סטטוס">
+                <button type="button" className={status === "all" ? "active" : ""} onClick={() => setStatus("all")}>הכול</button>
+                <button type="button" className={status === "new" ? "active" : ""} onClick={() => setStatus("new")}>חדשה</button>
+                <button type="button" className={status === "progress" ? "active" : ""} onClick={() => setStatus("progress")}>בטיפול</button>
+                <button type="button" className={status === "waiting" ? "active" : ""} onClick={() => setStatus("waiting")}>ממתינה</button>
+                <button type="button" className={status === "closed" ? "active" : ""} onClick={() => setStatus("closed")}>נסגרה</button>
+              </div>
             </div>
-            <RequestsTable requests={filtered} users={users} onOpen={onSelect} />
+            <RequestCards requests={filtered} users={users} selectedId={selectedRequest?.id ?? null} onOpen={onSelect} />
           </div>
         </section>
 
@@ -1158,6 +1189,51 @@ function ManageRequests({
         />
       )}
     </>
+  );
+}
+
+function RequestCards({
+  requests,
+  users,
+  selectedId,
+  onOpen
+}: {
+  requests: TechRequest[];
+  users: User[];
+  selectedId: number | null;
+  onOpen: (id: number) => void;
+}) {
+  if (!requests.length) {
+    return <div className="empty">אין בקשות שתואמות לחיפוש כרגע.</div>;
+  }
+
+  return (
+    <div className="request-card-list">
+      {requests.map((request) => {
+        const requester = users.find((user) => user.id === request.requesterId);
+        const isSelected = selectedId === request.id;
+        return (
+          <button
+            key={request.id}
+            type="button"
+            className={`request-card ${isSelected ? "selected" : ""}`}
+            onClick={() => onOpen(request.id)}
+          >
+            <span className="request-card-topline">
+              <span>#{request.id}</span>
+              <StatusPill status={request.status} />
+            </span>
+            <strong>{request.subjectName}</strong>
+            <span className="request-card-meta">{request.className} · {request.requestType}</span>
+            <span className="request-card-desc">{request.description}</span>
+            <span className="request-card-footer">
+              <span>{requester?.name ?? "לא ידוע"}</span>
+              <span>{request.createdAt}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1202,6 +1278,7 @@ function RequestDetails({
         <div className="detail-item">
           <span>מגישה</span>
           <strong>{requester?.name ?? "לא ידוע"}</strong>
+          {requester?.email && <p>{requester.email}</p>}
         </div>
         <div className="detail-item">
           <span>סוג הבקשה</span>
@@ -1210,6 +1287,10 @@ function RequestDetails({
         <div className="detail-item">
           <span>תיאור הצורך</span>
           <p>{request.description}</p>
+        </div>
+        <div className="detail-item">
+          <span>מה כבר נוסה</span>
+          <p>{request.attempted || "לא הוזן מידע נוסף."}</p>
         </div>
         {student && <StudentDeviceDetails student={student} />}
         <div className="field">
@@ -1288,11 +1369,11 @@ function CloseRequestModal({
           <div className="form-grid">
             <div className="field full">
               <label htmlFor="internalClose">סיכום טיפול פנימי</label>
-              <textarea id="internalClose" value={internalNote} onChange={(event) => setInternalNote(event.target.value)} />
+              <textarea id="internalClose" value={internalNote} onChange={(event) => setInternalNote(event.target.value)} placeholder="מה נעשה בפועל? מה חשוב שיישאר מתועד לצוות הטכנולוגיה?" />
             </div>
             <div className="field full">
               <label htmlFor="closeMessage">הודעה למגישה</label>
-              <textarea id="closeMessage" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="לדוגמה: הטאבלט הוגדר ונמסר לכיתה. אפשר לפנות אלינו אם יש צורך בהתאמה נוספת." />
+              <textarea id="closeMessage" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="לדוגמה: הבקשה טופלה, הציוד הוגדר ונמסר לכיתה. אפשר לפנות אלינו אם יש צורך בהתאמה נוספת." />
             </div>
             <label className="field full">
               <span>שליחת מייל למגישה</span>
@@ -1446,11 +1527,13 @@ function UsersAdmin({
 
 function StudentsAdmin({
   students,
+  requests,
   onAdd,
   onUpdate,
   onImport
 }: {
   students: Student[];
+  requests: TechRequest[];
   onAdd: (student: Student) => void | Promise<void>;
   onUpdate: (student: Student) => void | Promise<void>;
   onImport: (students: Student[]) => void | Promise<void>;
@@ -1468,6 +1551,37 @@ function StudentsAdmin({
   const [appleId, setAppleId] = useState("");
   const [applePassword, setApplePassword] = useState("");
   const [bulk, setBulk] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+
+  const studentRequestCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    requests.forEach((request) => {
+      if (!request.studentId) return;
+      counts.set(request.studentId, (counts.get(request.studentId) ?? 0) + 1);
+    });
+    return counts;
+  }, [requests]);
+
+  const filteredStudents = useMemo(() => {
+    const normalizedSearch = studentSearch.trim().toLowerCase();
+    if (!normalizedSearch) return students;
+
+    return students.filter((student) => {
+      const requestCount = studentRequestCounts.get(student.id) ?? 0;
+      const searchText = [
+        student.fullName,
+        student.className,
+        student.deviceType,
+        student.careProvider,
+        student.accessibilityDate,
+        student.deviceResponsibility,
+        student.accessories,
+        requestCount
+      ].filter(Boolean).join(" ").toLowerCase();
+
+      return searchText.includes(normalizedSearch);
+    });
+  }, [studentRequestCounts, studentSearch, students]);
 
   function loadStudent(student: Student) {
     setEditingStudentId(student.id);
@@ -1620,6 +1734,12 @@ function StudentsAdmin({
         <div className="panel-header">
           <h3>רשימת תלמידים</h3>
         </div>
+        <div className="panel-body compact-panel-body">
+          <div className="filters two">
+            <input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="חיפוש תלמיד/ה לפי שם, כיתה, מכשיר או גורם מטפל" />
+            <div className="result-count">{filteredStudents.length} מתוך {students.length} תלמידים</div>
+          </div>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -1629,22 +1749,27 @@ function StudentsAdmin({
                 <th>סוג מכשיר</th>
                 <th>גורם מטפל</th>
                 <th>תאריך הנגשה</th>
+                <th>פניות</th>
                 <th>סטטוס</th>
                 <th>פעולה</th>
               </tr>
             </thead>
             <tbody>
-              {students.map((student) => (
-                <tr key={student.id}>
-                  <td data-label="שם תלמיד/ה">{student.fullName}</td>
-                  <td data-label="כיתה">{student.className}</td>
-                  <td data-label="סוג מכשיר">{student.deviceType ?? "-"}</td>
-                  <td data-label="גורם מטפל">{student.careProvider ?? "-"}</td>
-                  <td data-label="תאריך הנגשה">{student.accessibilityDate ?? "-"}</td>
-                  <td data-label="סטטוס">{student.active ? "פעיל" : "מושבת"}</td>
-                  <td data-label="פעולה"><button className="btn" onClick={() => loadStudent(student)}>עריכה</button></td>
-                </tr>
-              ))}
+              {filteredStudents.map((student) => {
+                const requestCount = studentRequestCounts.get(student.id) ?? 0;
+                return (
+                  <tr key={student.id}>
+                    <td data-label="שם תלמיד/ה">{student.fullName}</td>
+                    <td data-label="כיתה">{student.className}</td>
+                    <td data-label="סוג מכשיר">{student.deviceType ?? "-"}</td>
+                    <td data-label="גורם מטפל">{student.careProvider ?? "-"}</td>
+                    <td data-label="תאריך הנגשה">{student.accessibilityDate ?? "-"}</td>
+                    <td data-label="פניות"><span className="role-pill">{requestCount}</span></td>
+                    <td data-label="סטטוס">{student.active ? "פעיל" : "מושבת"}</td>
+                    <td data-label="פעולה"><button className="btn" onClick={() => loadStudent(student)}>עריכה</button></td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1725,9 +1850,32 @@ function Topbar({ title, subtitle, action }: { title: string; subtitle: string; 
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({
+  label,
+  value,
+  tone,
+  active,
+  onClick
+}: {
+  label: string;
+  value: number;
+  tone?: RequestStatus;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  const className = `stat-card ${tone ? `tone-${tone}` : ""} ${active ? "active" : ""}`;
+
+  if (onClick) {
+    return (
+      <button className={className} type="button" onClick={onClick} aria-pressed={active}>
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </button>
+    );
+  }
+
   return (
-    <div className="stat-card">
+    <div className={className}>
       <strong>{value}</strong>
       <span>{label}</span>
     </div>
