@@ -176,6 +176,7 @@ export async function POST(request: NextRequest) {
       html
     });
   } catch (error) {
+    console.error("request_closed_email_failed", error);
     return NextResponse.json({ error: "email_send_failed" }, { status: 502 });
   }
 

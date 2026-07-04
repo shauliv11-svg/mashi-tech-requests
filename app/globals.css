@@ -878,6 +878,10 @@ tbody tr:hover {
   font-weight: 600;
 }
 
+.inline-hint.warning {
+  color: var(--warning);
+}
+
 .request-detail > .panel {
   align-self: start;
 }

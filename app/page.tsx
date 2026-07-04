@@ -1919,6 +1919,7 @@ function CloseRequestModal({
   const [internalNote, setInternalNote] = useState(request.internalNote ?? "");
   const [message, setMessage] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
+  const canSubmit = !sendEmail || message.trim().length > 0;
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="סגירת בקשה">
@@ -1935,6 +1936,7 @@ function CloseRequestModal({
             <div className="field full">
               <label htmlFor="closeMessage">הודעה למגישה</label>
               <textarea id="closeMessage" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="לדוגמה: הבקשה טופלה, הציוד הוגדר ונמסר לכיתה. אפשר לפנות אלינו אם יש צורך בהתאמה נוספת." />
+              {sendEmail && !message.trim() && <p className="inline-hint warning">כדי לשלוח מייל צריך למלא הודעה למגישה.</p>}
             </div>
             <label className="field full">
               <span>שליחת מייל למגישה</span>
@@ -1950,12 +1952,13 @@ function CloseRequestModal({
               <button
                 className="btn primary"
                 type="button"
+                disabled={!canSubmit}
                 onClick={() =>
                   onClose({
                     ...request,
                     status: "closed",
                     internalNote,
-                    closingMessage: sendEmail ? message : ""
+                    closingMessage: sendEmail ? message.trim() : ""
                   }, sendEmail)
                 }
               >
