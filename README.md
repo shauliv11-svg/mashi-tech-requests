@@ -46,6 +46,7 @@ supabase/schema.sql
 ```text
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
 ```
 
 5. מפעילים Redeploy ב-Vercel.
@@ -73,7 +74,7 @@ http://localhost:3000
 http://localhost:3001
 ```
 
-4. Users must exist and be active in `app_users` before they can create a password or log in.
-5. First-time users use the "יצירת סיסמה" flow. Existing users use "כניסה".
-6. Password reset uses the "איפוס סיסמה" flow.
+4. Admins create staff users from the app and set their initial password.
+5. `SUPABASE_SERVICE_ROLE_KEY` is required for admin-created passwords and deleting Auth users. Keep it server-only; never prefix it with `NEXT_PUBLIC_`.
+6. Existing users use "כניסה". Password reset uses the "איפוס סיסמה" flow.
 

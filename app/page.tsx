@@ -73,6 +73,22 @@ const requestTypes = [
   "אחר"
 ];
 
+type RequestFilters = {
+  id: string;
+  subjectName: string;
+  className: string;
+  requestType: string;
+  requesterId: string;
+};
+
+const emptyRequestFilters: RequestFilters = {
+  id: "",
+  subjectName: "",
+  className: "",
+  requestType: "all",
+  requesterId: "all"
+};
+
 const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "מחשב מיקוד מבט", "אייפד פרו"];
 const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
 
@@ -591,19 +607,54 @@ export default function Home() {
     showToast(successMessage);
   }
 
-  async function createUser(user: User) {
+  async function createUser(user: User, initialPassword?: string) {
     if (!isSupabaseConfigured || !supabase) {
       setUsers((items) => [...items, user]);
       showToast("המשתמשת נוספה לרשימת ההזמנות.");
       return;
     }
-    const { data, error } = await supabase.from("app_users").insert(userPayload(user)).select("*").single();
-    if (error) {
-      showToast("שמירת המשתמשת בדאטה בייס נכשלה.");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      showToast("צריך להתחבר מחדש כדי לנהל משתמשים.");
       return;
     }
-    setUsers((items) => [...items, mapUser(data)]);
-    showToast("המשתמשת נשמרה בדאטה בייס.");
+
+    const response = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        classNames: user.classNames ?? [],
+        password: initialPassword
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.user) {
+      const message = result?.error === "missing_service_role_key"
+        ? "צריך להגדיר SUPABASE_SERVICE_ROLE_KEY ב-Vercel כדי שאדמין יוכל ליצור סיסמה."
+        : "שמירת המשתמשת או הסיסמה הראשונית נכשלה.";
+      showToast(message);
+      return;
+    }
+
+    const saved = mapUser(result.user);
+    setUsers((items) => {
+      const exists = items.some((item) => item.email.toLowerCase() === saved.email.toLowerCase() || item.id === saved.id);
+      return exists
+        ? items.map((item) => item.email.toLowerCase() === saved.email.toLowerCase() || item.id === saved.id ? saved : item)
+        : [...items, saved];
+    });
+    showToast("המשתמשת נשמרה והסיסמה הראשונית הוגדרה.");
   }
 
   async function patchUser(id: number, patch: Partial<User>) {
@@ -620,6 +671,62 @@ export default function Home() {
       return;
     }
     setUsers((items) => items.map((item) => (item.id === id ? mapUser(data) : item)));
+  }
+
+  async function deleteUser(user: User) {
+    if (user.id === currentUser?.id) {
+      showToast("אי אפשר למחוק את המשתמשת המחוברת כרגע.");
+      return;
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      const hasRequests = requests.some((request) => request.requesterId === user.id);
+      setUsers((items) => hasRequests
+        ? items.map((item) => item.id === user.id ? { ...item, active: false } : item)
+        : items.filter((item) => item.id !== user.id)
+      );
+      showToast(hasRequests ? "המשתמשת הושבתה כדי לשמור היסטוריית בקשות." : "המשתמשת נמחקה.");
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      showToast("צריך להתחבר מחדש כדי למחוק משתמשות.");
+      return;
+    }
+
+    const response = await fetch("/api/admin/users", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ id: user.id, email: user.email })
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const message = result?.error === "cannot_delete_self"
+        ? "אי אפשר למחוק את המשתמשת המחוברת כרגע."
+        : result?.error === "missing_service_role_key"
+          ? "צריך להגדיר SUPABASE_SERVICE_ROLE_KEY ב-Vercel כדי למחוק משתמשות מ-Auth."
+          : "מחיקת המשתמשת נכשלה.";
+      showToast(message);
+      return;
+    }
+
+    if (result?.mode === "disabled" && result.user) {
+      const saved = mapUser(result.user);
+      setUsers((items) => items.map((item) => item.id === saved.id ? saved : item));
+      showToast("המשתמשת הושבתה ונחסמה מכניסה, כדי לשמור היסטוריית בקשות.");
+      return;
+    }
+
+    setUsers((items) => items.filter((item) => item.id !== user.id));
+    showToast("המשתמשת נמחקה ונחסמה מכניסה.");
   }
 
   async function createStudent(student: Student) {
@@ -754,6 +861,7 @@ export default function Home() {
             currentUser={currentUser}
             requests={requests}
             users={users}
+            selectedRequestId={selectedRequestId}
             onNew={() => navigate("newRequest")}
             onOpen={(id) => {
               setSelectedRequestId(id);
@@ -779,12 +887,14 @@ export default function Home() {
             onClose={(updated) => updateRequest(updated, "הבקשה נסגרה ונשמרה בדאטה בייס.")}
           />
         )}
-        {view === "users" && role === "admin" && (
+        {view === "users" && role === "admin" && currentUser && (
           <UsersAdmin
             users={users}
+            currentUserId={currentUser.id}
             onInvite={createUser}
             onRoleChange={(id, nextRole) => patchUser(id, { role: nextRole })}
             onClassChange={(id, classNamesText) => patchUser(id, { classNames: parseClassList(classNamesText) })}
+            onDelete={deleteUser}
           />
         )}
         {view === "students" && role === "admin" && (
@@ -969,33 +1079,184 @@ function MyRequests({
   currentUser,
   requests,
   users,
+  selectedRequestId,
   onNew,
   onOpen
 }: {
   currentUser: User;
   requests: TechRequest[];
   users: User[];
+  selectedRequestId: number | null;
   onNew: () => void;
   onOpen: (id: number) => void;
 }) {
-  const myRequests = requests.filter((request) => {
-    const isOwnRequest = request.requesterId === currentUser.id;
-    const isClassRequest = currentUser.classNames?.includes(request.className) ?? false;
-    return isOwnRequest || isClassRequest;
+  const ownRequests = requests.filter((request) => request.requesterId === currentUser.id);
+  const classRequests = requests.filter((request) => {
+    const isAssignedClass = currentUser.classNames?.includes(request.className) ?? false;
+    return isAssignedClass && request.requesterId !== currentUser.id;
   });
+  const visibleRequests = [...ownRequests, ...classRequests];
+  const selectedStaffRequest = visibleRequests.find((request) => request.id === selectedRequestId) ?? null;
+  const selectedRequester = users.find((user) => user.id === selectedStaffRequest?.requesterId);
+  const openCount = visibleRequests.filter((request) => request.status !== "closed").length;
+  const waitingCount = visibleRequests.filter((request) => request.status === "waiting").length;
+  const closedCount = visibleRequests.filter((request) => request.status === "closed").length;
+
   const subtitle = currentUser.classNames?.length
-    ? `בקשות שפתחת ובקשות עבור הכיתות: ${formatClassList(currentUser.classNames)}.`
+    ? `מעקב אחרי בקשות שפתחת ובקשות עבור הכיתות: ${formatClassList(currentUser.classNames)}.`
     : "מעקב פשוט אחרי הבקשות שפתחת.";
 
   return (
     <>
       <Topbar title="הבקשות שלי" subtitle={subtitle} action={<button className="btn primary" onClick={onNew}>בקשה חדשה</button>} />
-      <section className="panel">
-        <div className="panel-body">
-          <RequestCards requests={myRequests} users={users} selectedId={null} onOpen={onOpen} />
+
+      <div className="staff-overview" aria-label="תקציר בקשות">
+        <div className="staff-overview-item tone-progress">
+          <strong>{openCount}</strong>
+          <span>פתוחות למעקב</span>
         </div>
-      </section>
+        <div className="staff-overview-item tone-waiting">
+          <strong>{waitingCount}</strong>
+          <span>ממתינות למידע</span>
+        </div>
+        <div className="staff-overview-item tone-closed">
+          <strong>{closedCount}</strong>
+          <span>נסגרו</span>
+        </div>
+      </div>
+
+      <div className="staff-request-grid">
+        <StaffRequestSection
+          title="בקשות שפתחתי"
+          subtitle="כל הפניות שנשלחו מהמשתמשת שלך."
+          emptyText="עדיין לא פתחת בקשות. אפשר להתחיל מבקשה חדשה."
+          requests={ownRequests}
+          users={users}
+          selectedId={selectedRequestId}
+          onOpen={onOpen}
+        />
+        <StaffRequestSection
+          title="בקשות של הכיתות שלי"
+          subtitle={currentUser.classNames?.length ? formatClassList(currentUser.classNames) : "לא הוגדרו כיתות למשתמשת הזו."}
+          emptyText="אין כרגע בקשות נוספות לכיתות שלך."
+          requests={classRequests}
+          users={users}
+          selectedId={selectedRequestId}
+          onOpen={onOpen}
+        />
+      </div>
+
+      <StaffRequestPreview request={selectedStaffRequest} requester={selectedRequester} currentUser={currentUser} />
     </>
+  );
+}
+
+function StaffRequestSection({
+  title,
+  subtitle,
+  emptyText,
+  requests,
+  users,
+  selectedId,
+  onOpen
+}: {
+  title: string;
+  subtitle: string;
+  emptyText: string;
+  requests: TechRequest[];
+  users: User[];
+  selectedId: number | null;
+  onOpen: (id: number) => void;
+}) {
+  return (
+    <section className="panel staff-request-section">
+      <div className="panel-header staff-section-header">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <span className="section-count">{requests.length}</span>
+      </div>
+      <div className="panel-body">
+        {requests.length ? (
+          <RequestCards requests={requests} users={users} selectedId={selectedId} onOpen={onOpen} />
+        ) : (
+          <div className="empty soft-empty">{emptyText}</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function StaffRequestPreview({
+  request,
+  requester,
+  currentUser
+}: {
+  request: TechRequest | null;
+  requester?: User;
+  currentUser: User;
+}) {
+  if (!request) {
+    return (
+      <section className="panel staff-preview-panel">
+        <div className="empty soft-empty">בחרי בקשה מהרשימות כדי לראות את התוכן המלא שלה כאן.</div>
+      </section>
+    );
+  }
+
+  const isOwnRequest = request.requesterId === currentUser.id;
+
+  return (
+    <section className="panel staff-preview-panel">
+      <div className="panel-header staff-preview-header">
+        <div>
+          <h3>פנייה #{request.id}</h3>
+          <p>{isOwnRequest ? "בקשה שפתחת" : `בקשה מהכיתה ${request.className}`}</p>
+        </div>
+        <StatusPill status={request.status} />
+      </div>
+      <div className="panel-body staff-preview-body">
+        <div className="staff-preview-summary">
+          <div>
+            <span>עבור</span>
+            <strong>{request.subjectName}</strong>
+          </div>
+          <div>
+            <span>כיתה</span>
+            <strong>{request.className}</strong>
+          </div>
+          <div>
+            <span>סוג</span>
+            <strong>{request.requestType}</strong>
+          </div>
+          <div>
+            <span>תאריך פתיחה</span>
+            <strong>{request.createdAt}</strong>
+          </div>
+        </div>
+        {!isOwnRequest && requester && (
+          <div className="staff-preview-note">
+            <span>נפתחה על ידי</span>
+            <strong>{requester.name}</strong>
+          </div>
+        )}
+        <div className="staff-readable-block">
+          <span>תיאור הבקשה</span>
+          <p>{request.description}</p>
+        </div>
+        <div className="staff-readable-block">
+          <span>מה כבר נוסה</span>
+          <p>{request.attempted || "לא הוזן מידע נוסף."}</p>
+        </div>
+        {request.closingMessage && (
+          <div className="staff-readable-block closing">
+            <span>הודעת סגירה</span>
+            <p>{request.closingMessage}</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1128,10 +1389,25 @@ function ManageRequests({
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<RequestStatus | "all">("all");
+  const [requestFilters, setRequestFilters] = useState<RequestFilters>(emptyRequestFilters);
   const [closingRequest, setClosingRequest] = useState<TechRequest | null>(null);
+
+  function updateRequestFilter(field: keyof RequestFilters, value: string) {
+    setRequestFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setStatus("all");
+    setRequestFilters(emptyRequestFilters);
+  }
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const idFilter = requestFilters.id.trim();
+    const subjectFilter = requestFilters.subjectName.trim().toLowerCase();
+    const classFilter = requestFilters.className.trim().toLowerCase();
+    const requesterFilterId = requestFilters.requesterId === "all" ? null : Number(requestFilters.requesterId);
 
     return requests.filter((request) => {
       const requester = users.find((user) => user.id === request.requesterId);
@@ -1148,9 +1424,27 @@ function ManageRequests({
         statusLabels[request.status]
       ].filter(Boolean).join(" ").toLowerCase();
 
-      return searchText.includes(normalizedQuery) && (status === "all" || request.status === status);
+      const matchesGlobalSearch = !normalizedQuery || searchText.includes(normalizedQuery);
+      const matchesId = !idFilter || String(request.id).includes(idFilter);
+      const matchesSubject = !subjectFilter || request.subjectName.toLowerCase().includes(subjectFilter);
+      const matchesClass = !classFilter || request.className.toLowerCase().includes(classFilter);
+      const matchesType = requestFilters.requestType === "all" || request.requestType === requestFilters.requestType;
+      const matchesRequester = requesterFilterId === null || request.requesterId === requesterFilterId;
+      const matchesStatus = status === "all" || request.status === status;
+
+      return matchesGlobalSearch && matchesId && matchesSubject && matchesClass && matchesType && matchesRequester && matchesStatus;
     });
-  }, [query, requests, status, users]);
+  }, [query, requestFilters, requests, status, users]);
+
+  const hasActiveFilters = Boolean(
+    query.trim() ||
+    status !== "all" ||
+    requestFilters.id.trim() ||
+    requestFilters.subjectName.trim() ||
+    requestFilters.className.trim() ||
+    requestFilters.requestType !== "all" ||
+    requestFilters.requesterId !== "all"
+  );
 
   const stats = {
     new: requests.filter((request) => request.status === "new").length,
@@ -1184,6 +1478,38 @@ function ManageRequests({
                 <button type="button" className={status === "waiting" ? "active" : ""} onClick={() => setStatus("waiting")}>ממתינה</button>
                 <button type="button" className={status === "closed" ? "active" : ""} onClick={() => setStatus("closed")}>נסגרה</button>
               </div>
+            </div>
+            <div className="advanced-filter-grid" aria-label="סינון ממוקד לפי שדות">
+              <div className="field compact">
+                <label htmlFor="filterRequestId">מס׳ פנייה</label>
+                <input id="filterRequestId" inputMode="numeric" value={requestFilters.id} onChange={(event) => updateRequestFilter("id", event.target.value)} placeholder="לדוגמה: 103" />
+              </div>
+              <div className="field compact">
+                <label htmlFor="filterSubjectName">תלמיד/ה או כיתה</label>
+                <input id="filterSubjectName" value={requestFilters.subjectName} onChange={(event) => updateRequestFilter("subjectName", event.target.value)} placeholder="שם הפנייה" />
+              </div>
+              <div className="field compact">
+                <label htmlFor="filterClassName">כיתה</label>
+                <input id="filterClassName" value={requestFilters.className} onChange={(event) => updateRequestFilter("className", event.target.value)} placeholder="לדוגמה: ד׳1" />
+              </div>
+              <div className="field compact">
+                <label htmlFor="filterRequestType">סוג בקשה</label>
+                <select id="filterRequestType" value={requestFilters.requestType} onChange={(event) => updateRequestFilter("requestType", event.target.value)}>
+                  <option value="all">כל הסוגים</option>
+                  {requestTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </div>
+              <div className="field compact">
+                <label htmlFor="filterRequester">מגישה</label>
+                <select id="filterRequester" value={requestFilters.requesterId} onChange={(event) => updateRequestFilter("requesterId", event.target.value)}>
+                  <option value="all">כל המגישות</option>
+                  {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="filter-footer">
+              <span>{filtered.length} מתוך {requests.length} בקשות</span>
+              {hasActiveFilters && <button className="btn" type="button" onClick={clearFilters}>איפוס סינון</button>}
             </div>
             <RequestCards requests={filtered} users={users} selectedId={selectedRequest?.id ?? null} onOpen={onSelect} />
           </div>
@@ -1432,23 +1758,28 @@ function CloseRequestModal({
 
 function UsersAdmin({
   users,
+  currentUserId,
   onInvite,
   onRoleChange,
-  onClassChange
+  onClassChange,
+  onDelete
 }: {
   users: User[];
-  onInvite: (user: User) => void | Promise<void>;
+  currentUserId: number;
+  onInvite: (user: User, initialPassword: string) => void | Promise<void>;
   onRoleChange: (id: number, role: Role) => void | Promise<void>;
   onClassChange: (id: number, classNamesText: string) => void | Promise<void>;
+  onDelete: (user: User) => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("staff");
   const [classNamesText, setClassNamesText] = useState("");
+  const [initialPassword, setInitialPassword] = useState("");
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !email.trim() || initialPassword.length < 6) return;
     onInvite({
       id: Date.now(),
       name,
@@ -1456,19 +1787,28 @@ function UsersAdmin({
       role,
       classNames: role === "staff" ? parseClassList(classNamesText) : undefined,
       active: true
-    });
+    }, initialPassword);
     setName("");
     setEmail("");
     setRole("staff");
     setClassNamesText("");
+    setInitialPassword("");
+  }
+
+  function confirmDelete(user: User) {
+    if (user.id === currentUserId) return;
+    const approved = window.confirm(`למחוק את ${user.name}? אם יש לה בקשות היסטוריות היא תושבת במקום להימחק.`);
+    if (approved) {
+      onDelete(user);
+    }
   }
 
   return (
     <>
-      <Topbar title="ניהול משתמשים" subtitle="לאדמין בלבד: הזמנת צוות ושינוי תפקידים." />
+      <Topbar title="ניהול משתמשים" subtitle="לאדמין בלבד: הוספת צוות, הגדרת סיסמה ראשונית ושינוי תפקידים." />
       <section className="panel">
         <div className="panel-header">
-          <h3>הזמנת משתמשת</h3>
+          <h3>הוספת משתמשת</h3>
         </div>
         <div className="panel-body">
           <form className="form-grid" onSubmit={submit}>
@@ -1492,9 +1832,14 @@ function UsersAdmin({
               <label htmlFor="inviteClass">כיתות משויכות</label>
               <input id="inviteClass" value={classNamesText} onChange={(event) => setClassNamesText(event.target.value)} placeholder="לדוגמה: ג׳ תקשורת, ד׳1" disabled={role !== "staff"} />
             </div>
+            <div className="field">
+              <label htmlFor="invitePassword">סיסמה ראשונית</label>
+              <input id="invitePassword" type="password" value={initialPassword} onChange={(event) => setInitialPassword(event.target.value)} minLength={6} placeholder="לפחות 6 תווים" autoComplete="new-password" />
+              <span className="field-help">האדמין מוסר את הסיסמה הראשונית לאשת הצוות. היא לא נשמרת בטבלה.</span>
+            </div>
             <div className="field full">
               <button className="btn primary" type="submit">
-                שליחת הזמנה
+                יצירת משתמשת
               </button>
             </div>
           </form>
@@ -1514,6 +1859,7 @@ function UsersAdmin({
                 <th>תפקיד</th>
                 <th>כיתות משויכות</th>
                 <th>סטטוס</th>
+                <th>פעולות</th>
               </tr>
             </thead>
             <tbody>
@@ -1537,6 +1883,11 @@ function UsersAdmin({
                     />
                   </td>
                   <td data-label="סטטוס">{user.active ? "פעיל" : "מושבת"}</td>
+                  <td data-label="פעולות">
+                    <button className="btn danger" type="button" onClick={() => confirmDelete(user)} disabled={user.id === currentUserId}>
+                      מחיקה
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

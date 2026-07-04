@@ -5,6 +5,10 @@
 - Status summary cards filter the request list by status.
 - Request details open below the list in a wider panel.
 - Request search covers request number, student, class, request type, submitter, content, attempted solution, and internal notes.
+- Request management has structured filters for request number, subject, class, request type, submitter, and status.
+- Staff request view separates requests the staff member opened from requests in their assigned classes.
+- Staff request view includes a readable request preview without admin-only fields.
+- Admin user management supports initial password setup and deleting/deactivating staff users.
 - Student admin has search and request counts per student.
 - Student admin has a per-student request history panel.
 - Student device responsibility is split into responsibility text, phone, and email fields.
@@ -13,14 +17,12 @@
 ## UX - Request Management
 
 ### In progress now
-- Clicking the main status cards (`חדשות`, `בטיפול`, `ממתינות למידע`, `נסגרו`) filters the request list by that status.
-- Request details should open below the request list, not in a narrow side panel, so full request content is visible without horizontal scrolling.
-- Request detail must show the full request, including `מה כבר נוסה`, internal notes, closing message, and device/accessibility details for handlers/admins.
+- Improve the request card content hierarchy for faster scanning during treatment meetings.
+- Refine the request submission form into a calmer staff-first flow.
 
 ### Next
-- Add advanced filtering for requests by request number, student, class, request type, submitter, and status.
-- Consider replacing table-style request browsing entirely with cards plus structured filters.
-- Add clearer separation between staff-only request submission and handler/admin management.
+- Add saved filter presets or quick views if the team repeatedly uses the same filters.
+- Add clearer empty states and follow-up prompts for staff-only request submission.
 
 ## Roles And Permissions
 
