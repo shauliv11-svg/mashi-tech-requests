@@ -75,6 +75,33 @@ function getMailConfig() {
   return { host, port, secure, user, pass, from, replyTo };
 }
 
+function getSmtpErrorDetails(error: unknown) {
+  const smtpError = error as { code?: unknown; command?: unknown; responseCode?: unknown };
+  return {
+    code: typeof smtpError.code === "string" ? smtpError.code : undefined,
+    command: typeof smtpError.command === "string" ? smtpError.command : undefined,
+    responseCode: typeof smtpError.responseCode === "number" ? smtpError.responseCode : undefined
+  };
+}
+
+function getSmtpFailureReason(error: unknown) {
+  const details = getSmtpErrorDetails(error);
+
+  if (details.code === "EAUTH" || details.responseCode === 535 || details.responseCode === 534) {
+    return "auth";
+  }
+
+  if (details.command === "RCPT TO" || details.responseCode === 550 || details.responseCode === 553) {
+    return "recipient";
+  }
+
+  if (["ECONNECTION", "ETIMEDOUT", "ESOCKET", "EDNS"].includes(details.code ?? "")) {
+    return "connection";
+  }
+
+  return "unknown";
+}
+
 export async function POST(request: NextRequest) {
   const adminClient = getAdminClient();
   const mailConfig = getMailConfig();
@@ -176,8 +203,9 @@ export async function POST(request: NextRequest) {
       html
     });
   } catch (error) {
-    console.error("request_closed_email_failed", error);
-    return NextResponse.json({ error: "email_send_failed" }, { status: 502 });
+    const reason = getSmtpFailureReason(error);
+    console.error("request_closed_email_failed", { reason, ...getSmtpErrorDetails(error) });
+    return NextResponse.json({ error: "email_send_failed", reason }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });

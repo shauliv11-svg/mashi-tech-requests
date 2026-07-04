@@ -645,9 +645,16 @@ export default function Home() {
 
     if (!response.ok) {
       const result = await response.json().catch(() => null);
+      const reason = typeof result?.reason === "string" ? result.reason : "";
       const message = result?.error === "missing_email_config"
         ? "הבקשה נסגרה, אבל הגדרות המייל ב-Vercel חסרות או לא תקינות."
-        : "הבקשה נסגרה, אבל שליחת המייל נכשלה.";
+        : reason === "auth"
+          ? "הבקשה נסגרה, אבל Gmail דחה את פרטי השליחה. בדקו App Password."
+          : reason === "recipient"
+            ? "הבקשה נסגרה, אבל כתובת המייל של המגישה נדחתה."
+            : reason === "connection"
+              ? "הבקשה נסגרה, אבל השרת לא הצליח להתחבר ל-Gmail."
+              : "הבקשה נסגרה, אבל שליחת המייל נכשלה.";
       showToast(message);
       return false;
     }
