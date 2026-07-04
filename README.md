@@ -78,3 +78,20 @@ http://localhost:3001
 5. `SUPABASE_SERVICE_ROLE_KEY` is required for admin-created passwords and deleting Auth users. Keep it server-only; never prefix it with `NEXT_PUBLIC_`.
 6. Existing users use "כניסה". Password reset uses the "איפוס סיסמה" flow.
 
+
+
+## Email sending
+
+Closed-request emails are sent server-side through SMTP. For Gmail or Google Workspace, add these Vercel Environment Variables and redeploy:
+
+```text
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=your-sender@gmail.com
+SMTP_PASS=your-google-app-password
+EMAIL_FROM=בקשות טכנולוגיה משי <your-sender@gmail.com>
+EMAIL_REPLY_TO=your-reply-address@example.com
+```
+
+Use a Google App Password, not the regular Gmail password.

@@ -8,6 +8,9 @@
 - Request management has structured filters for request number, subject, class, request type, submitter, and status.
 - Staff request view separates requests the staff member opened from requests in their assigned classes.
 - Staff request view includes a readable request preview without admin-only fields.
+- New request submission uses a calmer step-by-step staff flow with a summary before sending.
+- Request cards open their details inline under the selected card.
+- Requests show assigned handler after a handler moves them to in-progress.
 - Admin user management supports initial password setup and deleting/deactivating staff users.
 - Student admin has search and request counts per student.
 - Student admin has a per-student request history panel.
@@ -18,7 +21,6 @@
 
 ### In progress now
 - Improve the request card content hierarchy for faster scanning during treatment meetings.
-- Refine the request submission form into a calmer staff-first flow.
 
 ### Next
 - Add saved filter presets or quick views if the team repeatedly uses the same filters.

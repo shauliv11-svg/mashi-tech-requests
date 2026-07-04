@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "staff" | "handler" | "admin";
@@ -49,6 +49,7 @@ type TechRequest = {
   createdAt: string;
   internalNote?: string;
   closingMessage?: string;
+  handlerId?: number;
 };
 
 const roleLabels: Record<Role, string> = {
@@ -60,7 +61,7 @@ const roleLabels: Record<Role, string> = {
 const statusLabels: Record<RequestStatus, string> = {
   new: "חדשה",
   progress: "בטיפול",
-  waiting: "ממתינה למידע",
+  waiting: "נשלח לתיקון",
   closed: "נסגרה"
 };
 
@@ -167,6 +168,7 @@ const initialRequests: TechRequest[] = [
     description: "מבקשות הדרכה קצרה על שימוש בטאבלטים בפעילות קבוצתית.",
     attempted: "",
     status: "progress",
+    handlerId: 2,
     createdAt: "20.06.2026",
     internalNote: "לתאם עם רותם לשבוע הבא."
   },
@@ -273,7 +275,8 @@ function mapRequest(row: any): TechRequest {
     status: row.status,
     createdAt: displayDate(row.created_at),
     internalNote: row.internal_note ?? undefined,
-    closingMessage: row.closing_message ?? undefined
+    closingMessage: row.closing_message ?? undefined,
+    handlerId: row.handler_id ? Number(row.handler_id) : undefined
   };
 }
 
@@ -309,8 +312,8 @@ function studentPayload(student: Student, includeResponsibilityContacts = true) 
   return payload;
 }
 
-function requestPayload(request: TechRequest) {
-  return {
+function requestPayload(request: TechRequest, includeHandler = true) {
+  const payload: Record<string, unknown> = {
     requester_id: request.requesterId,
     subject_type: request.subjectType,
     student_id: request.studentId ?? null,
@@ -324,6 +327,12 @@ function requestPayload(request: TechRequest) {
     closing_message: request.closingMessage ?? null,
     updated_at: new Date().toISOString()
   };
+
+  if (includeHandler) {
+    payload.handler_id = request.handlerId ?? null;
+  }
+
+  return payload;
 }
 
 export default function Home() {
@@ -340,6 +349,7 @@ export default function Home() {
   const [authNotice, setAuthNotice] = useState("");
   const [toast, setToast] = useState("");
   const [studentResponsibilityContactsSupported, setStudentResponsibilityContactsSupported] = useState(!isSupabaseConfigured);
+  const [requestHandlerSupported, setRequestHandlerSupported] = useState(!isSupabaseConfigured);
 
   const authProfile = authEmail
     ? users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active) ?? null
@@ -537,11 +547,12 @@ export default function Home() {
     if (!isSupabaseConfigured || !supabase) return;
 
     async function loadData() {
-      const [usersResult, studentsResult, requestsResult, contactColumnsResult] = await Promise.all([
+      const [usersResult, studentsResult, requestsResult, contactColumnsResult, handlerColumnResult] = await Promise.all([
         supabase!.from("app_users").select("*").order("id"),
         supabase!.from("students").select("*").order("full_name"),
         supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
-        supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1)
+        supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1),
+        supabase!.from("tech_requests").select("handler_id").limit(1)
       ]);
 
       if (usersResult.error || studentsResult.error || requestsResult.error) {
@@ -551,6 +562,7 @@ export default function Home() {
       }
 
       setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
+      setRequestHandlerSupported(!handlerColumnResult.error);
       setUsers((usersResult.data ?? []).map(mapUser));
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
@@ -571,7 +583,7 @@ export default function Home() {
       return;
     }
 
-    const { data, error } = await supabase.from("tech_requests").insert(requestPayload(request)).select("*").single();
+    const { data, error } = await supabase.from("tech_requests").insert(requestPayload(request, requestHandlerSupported)).select("*").single();
     if (error) {
       showToast("שמירת הבקשה בדאטה בייס נכשלה.");
       return;
@@ -588,23 +600,68 @@ export default function Home() {
       setRequests((items) => items.map((item) => (item.id === updated.id ? updated : item)));
       setSelectedRequestId(updated.id);
       showToast(successMessage);
-      return;
+      return updated;
     }
 
     const { data, error } = await supabase
       .from("tech_requests")
-      .update(requestPayload(updated))
+      .update(requestPayload(updated, requestHandlerSupported))
       .eq("id", updated.id)
       .select("*")
       .single();
     if (error) {
       showToast("שמירת הבקשה בדאטה בייס נכשלה.");
-      return;
+      return null;
     }
     const saved = mapRequest(data);
     setRequests((items) => items.map((item) => (item.id === saved.id ? saved : item)));
     setSelectedRequestId(saved.id);
     showToast(successMessage);
+    return saved;
+  }
+
+  async function sendRequestClosedEmail(requestId: number) {
+    if (!isSupabaseConfigured || !supabase) {
+      showToast("במצב דמו הבקשה נסגרה ללא שליחת מייל אמיתי.");
+      return false;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      showToast("הבקשה נסגרה, אבל צריך להתחבר מחדש כדי לשלוח מייל.");
+      return false;
+    }
+
+    const response = await fetch("/api/notifications/request-closed", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ requestId })
+    });
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      const message = result?.error === "missing_email_config"
+        ? "הבקשה נסגרה, אבל הגדרות המייל ב-Vercel חסרות או לא תקינות."
+        : "הבקשה נסגרה, אבל שליחת המייל נכשלה.";
+      showToast(message);
+      return false;
+    }
+
+    showToast("הבקשה נסגרה ונשלח מייל למגישה.");
+    return true;
+  }
+
+  async function closeRequest(updated: TechRequest, shouldSendEmail: boolean) {
+    const saved = await updateRequest(updated, "הבקשה נסגרה ונשמרה בדאטה בייס.");
+
+    if (saved && shouldSendEmail && saved.closingMessage?.trim()) {
+      await sendRequestClosedEmail(saved.id);
+    }
   }
 
   async function createUser(user: User, initialPassword?: string) {
@@ -876,15 +933,18 @@ export default function Home() {
             onCreate={createRequest}
           />
         )}
-        {view === "manageRequests" && canManage && (
+        {view === "manageRequests" && canManage && currentUser && (
           <ManageRequests
             requests={requests}
             users={users}
             selectedRequest={selectedRequest}
             selectedRequestStudent={selectedRequestStudent}
+            currentUser={currentUser}
             onSelect={setSelectedRequestId}
-            onUpdate={(updated) => updateRequest(updated)}
-            onClose={(updated) => updateRequest(updated, "הבקשה נסגרה ונשמרה בדאטה בייס.")}
+            onUpdate={async (updated) => {
+              await updateRequest(updated);
+            }}
+            onClose={closeRequest}
           />
         )}
         {view === "users" && role === "admin" && currentUser && (
@@ -1096,8 +1156,6 @@ function MyRequests({
     return isAssignedClass && request.requesterId !== currentUser.id;
   });
   const visibleRequests = [...ownRequests, ...classRequests];
-  const selectedStaffRequest = visibleRequests.find((request) => request.id === selectedRequestId) ?? null;
-  const selectedRequester = users.find((user) => user.id === selectedStaffRequest?.requesterId);
   const openCount = visibleRequests.filter((request) => request.status !== "closed").length;
   const waitingCount = visibleRequests.filter((request) => request.status === "waiting").length;
   const closedCount = visibleRequests.filter((request) => request.status === "closed").length;
@@ -1117,7 +1175,7 @@ function MyRequests({
         </div>
         <div className="staff-overview-item tone-waiting">
           <strong>{waitingCount}</strong>
-          <span>ממתינות למידע</span>
+          <span>נשלחו לתיקון</span>
         </div>
         <div className="staff-overview-item tone-closed">
           <strong>{closedCount}</strong>
@@ -1134,6 +1192,14 @@ function MyRequests({
           users={users}
           selectedId={selectedRequestId}
           onOpen={onOpen}
+          renderSelected={(request) => (
+            <StaffRequestPreview
+              request={request}
+              requester={users.find((user) => user.id === request.requesterId)}
+              handler={users.find((user) => user.id === request.handlerId)}
+              currentUser={currentUser}
+            />
+          )}
         />
         <StaffRequestSection
           title="בקשות של הכיתות שלי"
@@ -1143,10 +1209,16 @@ function MyRequests({
           users={users}
           selectedId={selectedRequestId}
           onOpen={onOpen}
+          renderSelected={(request) => (
+            <StaffRequestPreview
+              request={request}
+              requester={users.find((user) => user.id === request.requesterId)}
+              handler={users.find((user) => user.id === request.handlerId)}
+              currentUser={currentUser}
+            />
+          )}
         />
       </div>
-
-      <StaffRequestPreview request={selectedStaffRequest} requester={selectedRequester} currentUser={currentUser} />
     </>
   );
 }
@@ -1158,7 +1230,8 @@ function StaffRequestSection({
   requests,
   users,
   selectedId,
-  onOpen
+  onOpen,
+  renderSelected
 }: {
   title: string;
   subtitle: string;
@@ -1167,6 +1240,7 @@ function StaffRequestSection({
   users: User[];
   selectedId: number | null;
   onOpen: (id: number) => void;
+  renderSelected?: (request: TechRequest) => ReactNode;
 }) {
   return (
     <section className="panel staff-request-section">
@@ -1179,7 +1253,7 @@ function StaffRequestSection({
       </div>
       <div className="panel-body">
         {requests.length ? (
-          <RequestCards requests={requests} users={users} selectedId={selectedId} onOpen={onOpen} />
+          <RequestCards requests={requests} users={users} selectedId={selectedId} onOpen={onOpen} renderSelected={renderSelected} />
         ) : (
           <div className="empty soft-empty">{emptyText}</div>
         )}
@@ -1191,20 +1265,14 @@ function StaffRequestSection({
 function StaffRequestPreview({
   request,
   requester,
+  handler,
   currentUser
 }: {
-  request: TechRequest | null;
+  request: TechRequest;
   requester?: User;
+  handler?: User;
   currentUser: User;
 }) {
-  if (!request) {
-    return (
-      <section className="panel staff-preview-panel">
-        <div className="empty soft-empty">בחרי בקשה מהרשימות כדי לראות את התוכן המלא שלה כאן.</div>
-      </section>
-    );
-  }
-
   const isOwnRequest = request.requesterId === currentUser.id;
 
   return (
@@ -1233,6 +1301,10 @@ function StaffRequestPreview({
           <div>
             <span>תאריך פתיחה</span>
             <strong>{request.createdAt}</strong>
+          </div>
+          <div>
+            <span>מטפל</span>
+            <strong>{handler?.name ?? "טרם שובץ"}</strong>
           </div>
         </div>
         {!isOwnRequest && requester && (
@@ -1270,6 +1342,7 @@ function NewRequest({
   onCreate: (request: TechRequest) => void | Promise<void>;
 }) {
   const activeStudents = students.filter((student) => student.active);
+  const [step, setStep] = useState(0);
   const [subjectType, setSubjectType] = useState<SubjectType>("student");
   const [studentId, setStudentId] = useState(activeStudents[0]?.id ?? 0);
   const [classSubject, setClassSubject] = useState("");
@@ -1278,16 +1351,40 @@ function NewRequest({
   const [attempted, setAttempted] = useState("");
 
   const selectedStudent = activeStudents.find((student) => student.id === studentId);
+  const subjectName = subjectType === "student" ? selectedStudent?.fullName ?? "" : classSubject.trim();
+  const requestClassName = subjectType === "student" ? selectedStudent?.className ?? "" : classSubject.trim();
+  const stepLabels = ["עבור מי", "סוג בקשה", "תיאור", "סיכום"];
+  const canContinue = [
+    Boolean(subjectName),
+    Boolean(requestType),
+    Boolean(description.trim()),
+    Boolean(subjectName && description.trim())
+  ][step];
+
+  function goNext() {
+    if (!canContinue) return;
+    setStep((current) => Math.min(current + 1, stepLabels.length - 1));
+  }
+
+  function goBack() {
+    setStep((current) => Math.max(current - 1, 0));
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (step < stepLabels.length - 1) {
+      goNext();
+      return;
+    }
+
     const request: TechRequest = {
       id: Date.now(),
       requesterId: currentUser.id,
       subjectType,
       studentId: subjectType === "student" ? selectedStudent?.id : undefined,
-      subjectName: subjectType === "student" ? selectedStudent?.fullName ?? "" : classSubject,
-      className: subjectType === "student" ? selectedStudent?.className ?? "" : classSubject,
+      subjectName,
+      className: requestClassName,
       requestType,
       description,
       attempted,
@@ -1301,66 +1398,149 @@ function NewRequest({
 
   return (
     <>
-      <Topbar title="בקשה חדשה" subtitle="בחרו תלמיד/ה או כיתה, תארו בקצרה את הצורך, והבקשה תעבור לטיפול." />
+      <Topbar title="בקשה חדשה" subtitle="פתיחה קצרה וממוקדת של פנייה לטכנולוגיה מסייעת." />
       <section className="panel new-request-panel">
         <div className="panel-body">
-          <form className="form-grid" onSubmit={submit}>
-            <div className="field full">
-              <label>עבור מי הבקשה?</label>
-              <div className="segmented">
-                <button type="button" className={`segment ${subjectType === "student" ? "active" : ""}`} onClick={() => setSubjectType("student")}>
-                  תלמיד/ה
+          <form className="request-wizard" onSubmit={submit}>
+            <div className="request-stepper" aria-label="שלבי פתיחת בקשה">
+              {stepLabels.map((label, index) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={`wizard-step ${index === step ? "active" : ""} ${index < step ? "done" : ""}`}
+                  onClick={() => index <= step && setStep(index)}
+                  disabled={index > step}
+                >
+                  <span>{index + 1}</span>
+                  <strong>{label}</strong>
                 </button>
-                <button type="button" className={`segment ${subjectType === "class" ? "active" : ""}`} onClick={() => setSubjectType("class")}>
-                  כיתה / קבוצה
-                </button>
-              </div>
+              ))}
             </div>
 
-            {subjectType === "student" ? (
-              <>
-                <div className="field">
-                  <label htmlFor="student">שם תלמיד/ה</label>
-                  <select id="student" value={studentId} onChange={(event) => setStudentId(Number(event.target.value))}>
-                    {activeStudents.map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.fullName}
-                      </option>
+            <div className="wizard-panel">
+              {step === 0 && (
+                <div className="wizard-step-content">
+                  <div className="wizard-copy">
+                    <h3>עבור מי הבקשה?</h3>
+                    <p>בחרי תלמיד/ה מהרשימה, או פתחי בקשה עבור כיתה/קבוצה.</p>
+                  </div>
+                  <div className="field full">
+                    <label>סוג הפנייה</label>
+                    <div className="segmented">
+                      <button type="button" className={`segment ${subjectType === "student" ? "active" : ""}`} onClick={() => setSubjectType("student")}>
+                        תלמיד/ה
+                      </button>
+                      <button type="button" className={`segment ${subjectType === "class" ? "active" : ""}`} onClick={() => setSubjectType("class")}>
+                        כיתה / קבוצה
+                      </button>
+                    </div>
+                  </div>
+
+                  {subjectType === "student" ? (
+                    <div className="form-grid wizard-fields">
+                      <div className="field">
+                        <label htmlFor="student">שם תלמיד/ה</label>
+                        <select id="student" value={studentId} onChange={(event) => setStudentId(Number(event.target.value))}>
+                          {activeStudents.map((student) => (
+                            <option key={student.id} value={student.id}>
+                              {student.fullName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="studentClass">כיתה</label>
+                        <input id="studentClass" value={selectedStudent?.className ?? ""} readOnly />
+                        <span className="field-help">הכיתה מתמלאת אוטומטית.</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="field full">
+                      <label htmlFor="classSubject">שם הכיתה / הקבוצה</label>
+                      <input id="classSubject" value={classSubject} onChange={(event) => setClassSubject(event.target.value)} placeholder="לדוגמה: כיתה ג׳ תקשורת או קבוצת קריאה" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 1 && (
+                <div className="wizard-step-content">
+                  <div className="wizard-copy">
+                    <h3>איזה סוג בקשה?</h3>
+                    <p>בחרי את האפשרות שהכי קרובה למה שצריך.</p>
+                  </div>
+                  <div className="request-type-grid">
+                    {requestTypes.map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        className={`choice-card ${requestType === type ? "active" : ""}`}
+                        onClick={() => setRequestType(type)}
+                      >
+                        {type}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
-                <div className="field">
-                  <label htmlFor="studentClass">כיתה</label>
-                  <input id="studentClass" value={selectedStudent?.className ?? ""} readOnly />
-                  <span className="field-help">הכיתה מתמלאת אוטומטית לפי רשימת התלמידים.</span>
-                </div>
-              </>
-            ) : (
-              <div className="field full">
-                <label htmlFor="classSubject">שם הכיתה / הקבוצה</label>
-                <input id="classSubject" value={classSubject} onChange={(event) => setClassSubject(event.target.value)} placeholder="לדוגמה: כיתה ג׳ תקשורת או קבוצת קריאה" />
-              </div>
-            )}
+              )}
 
-            <div className="field full">
-              <label htmlFor="requestType">סוג הבקשה</label>
-              <select id="requestType" value={requestType} onChange={(event) => setRequestType(event.target.value)}>
-                {requestTypes.map((type) => (
-                  <option key={type}>{type}</option>
-                ))}
-              </select>
+              {step === 2 && (
+                <div className="wizard-step-content">
+                  <div className="wizard-copy">
+                    <h3>מה הצורך?</h3>
+                    <p>כתבי חופשי. גם תיאור קצר מספיק כדי להתחיל טיפול.</p>
+                  </div>
+                  <div className="field full">
+                    <label htmlFor="description">תיאור הצורך</label>
+                    <textarea id="description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="מה הצורך? מתי זה קורה? מה יעזור לנו להבין את הבקשה?" required />
+                  </div>
+                  <div className="field full">
+                    <label htmlFor="attempted">מה כבר נוסה?</label>
+                    <textarea id="attempted" value={attempted} onChange={(event) => setAttempted(event.target.value)} placeholder="אם כבר ניסיתם פתרון, החלפתם ציוד או יש מידע נוסף - כתבו כאן." />
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="wizard-step-content">
+                  <div className="wizard-copy">
+                    <h3>סיכום לפני שליחה</h3>
+                    <p>בדקי שהפרטים נכונים לפני שהבקשה עוברת לטיפול.</p>
+                  </div>
+                  <div className="wizard-summary">
+                    <div>
+                      <span>עבור</span>
+                      <strong>{subjectName || "לא נבחר"}</strong>
+                    </div>
+                    <div>
+                      <span>כיתה</span>
+                      <strong>{requestClassName || "לא הוזן"}</strong>
+                    </div>
+                    <div>
+                      <span>סוג בקשה</span>
+                      <strong>{requestType}</strong>
+                    </div>
+                    <div>
+                      <span>מגישה</span>
+                      <strong>{currentUser.name}</strong>
+                    </div>
+                    <div className="wide">
+                      <span>תיאור הצורך</span>
+                      <p>{description || "לא הוזן"}</p>
+                    </div>
+                    <div className="wide">
+                      <span>מה כבר נוסה</span>
+                      <p>{attempted || "לא הוזן מידע נוסף."}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="field full">
-              <label htmlFor="description">תיאור הצורך</label>
-              <textarea id="description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="מה הצורך? מתי זה קורה? מה יעזור לנו להבין את הבקשה?" required />
-            </div>
-            <div className="field full">
-              <label htmlFor="attempted">מה כבר נוסה?</label>
-              <textarea id="attempted" value={attempted} onChange={(event) => setAttempted(event.target.value)} placeholder="אם כבר ניסיתם פתרון, החלפתם ציוד או יש מידע נוסף - כתבו כאן." />
-            </div>
-            <div className="field full">
-              <button className="btn primary" type="submit">
-                שליחת בקשה
+
+            <div className="wizard-actions">
+              {step > 0 && <button className="btn" type="button" onClick={goBack}>חזרה</button>}
+              <button className="btn primary" type="submit" disabled={!canContinue}>
+                {step === stepLabels.length - 1 ? "שליחת בקשה" : "המשך"}
               </button>
             </div>
           </form>
@@ -1375,6 +1555,7 @@ function ManageRequests({
   users,
   selectedRequest,
   selectedRequestStudent,
+  currentUser,
   onSelect,
   onUpdate,
   onClose
@@ -1383,9 +1564,10 @@ function ManageRequests({
   users: User[];
   selectedRequest?: TechRequest;
   selectedRequestStudent?: Student;
+  currentUser: User;
   onSelect: (id: number) => void;
   onUpdate: (request: TechRequest) => void | Promise<void>;
-  onClose: (request: TechRequest) => void | Promise<void>;
+  onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<RequestStatus | "all">("all");
@@ -1402,6 +1584,14 @@ function ManageRequests({
     setRequestFilters(emptyRequestFilters);
   }
 
+  function assignHandlerOnProgress(updated: TechRequest) {
+    const original = requests.find((request) => request.id === updated.id);
+    if (updated.status === "progress" && (!updated.handlerId || original?.status !== "progress")) {
+      return { ...updated, handlerId: currentUser.id };
+    }
+    return updated;
+  }
+
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const idFilter = requestFilters.id.trim();
@@ -1411,6 +1601,7 @@ function ManageRequests({
 
     return requests.filter((request) => {
       const requester = users.find((user) => user.id === request.requesterId);
+      const handler = users.find((user) => user.id === request.handlerId);
       const searchText = [
         request.id,
         request.subjectName,
@@ -1421,6 +1612,8 @@ function ManageRequests({
         request.internalNote,
         requester?.name,
         requester?.email,
+        handler?.name,
+        handler?.email,
         statusLabels[request.status]
       ].filter(Boolean).join(" ").toLowerCase();
 
@@ -1459,7 +1652,7 @@ function ManageRequests({
       <div className="stats-grid">
         <Stat label="חדשות" value={stats.new} tone="new" active={status === "new"} onClick={() => setStatus("new")} />
         <Stat label="בטיפול" value={stats.progress} tone="progress" active={status === "progress"} onClick={() => setStatus("progress")} />
-        <Stat label="ממתינות למידע" value={stats.waiting} tone="waiting" active={status === "waiting"} onClick={() => setStatus("waiting")} />
+        <Stat label="נשלחו לתיקון" value={stats.waiting} tone="waiting" active={status === "waiting"} onClick={() => setStatus("waiting")} />
         <Stat label="נסגרו" value={stats.closed} tone="closed" active={status === "closed"} onClick={() => setStatus("closed")} />
       </div>
 
@@ -1475,7 +1668,7 @@ function ManageRequests({
                 <button type="button" className={status === "all" ? "active" : ""} onClick={() => setStatus("all")}>הכול</button>
                 <button type="button" className={status === "new" ? "active" : ""} onClick={() => setStatus("new")}>חדשה</button>
                 <button type="button" className={status === "progress" ? "active" : ""} onClick={() => setStatus("progress")}>בטיפול</button>
-                <button type="button" className={status === "waiting" ? "active" : ""} onClick={() => setStatus("waiting")}>ממתינה</button>
+                <button type="button" className={status === "waiting" ? "active" : ""} onClick={() => setStatus("waiting")}>לתיקון</button>
                 <button type="button" className={status === "closed" ? "active" : ""} onClick={() => setStatus("closed")}>נסגרה</button>
               </div>
             </div>
@@ -1511,26 +1704,33 @@ function ManageRequests({
               <span>{filtered.length} מתוך {requests.length} בקשות</span>
               {hasActiveFilters && <button className="btn" type="button" onClick={clearFilters}>איפוס סינון</button>}
             </div>
-            <RequestCards requests={filtered} users={users} selectedId={selectedRequest?.id ?? null} onOpen={onSelect} />
+            <RequestCards
+              requests={filtered}
+              users={users}
+              selectedId={selectedRequest?.id ?? null}
+              onOpen={onSelect}
+              renderSelected={(request) => (
+                <RequestDetails
+                  request={request}
+                  requester={users.find((user) => user.id === request.requesterId)}
+                  handler={users.find((user) => user.id === request.handlerId)}
+                  student={request.id === selectedRequest?.id ? selectedRequestStudent : undefined}
+                  onUpdate={(updated) => onUpdate(assignHandlerOnProgress(updated))}
+                  onClose={setClosingRequest}
+                />
+              )}
+            />
           </div>
         </section>
-
-        <RequestDetails
-          request={selectedRequest}
-          requester={users.find((user) => user.id === selectedRequest?.requesterId)}
-          student={selectedRequestStudent}
-          onUpdate={onUpdate}
-          onClose={setClosingRequest}
-        />
       </div>
 
       {closingRequest && (
         <CloseRequestModal
           request={closingRequest}
           onCancel={() => setClosingRequest(null)}
-          onClose={(updated) => {
+          onClose={(updated, shouldSendEmail) => {
             setClosingRequest(null);
-            onClose(updated);
+            onClose(updated, shouldSendEmail);
           }}
         />
       )}
@@ -1542,12 +1742,14 @@ function RequestCards({
   requests,
   users,
   selectedId,
-  onOpen
+  onOpen,
+  renderSelected
 }: {
   requests: TechRequest[];
   users: User[];
   selectedId: number | null;
   onOpen: (id: number) => void;
+  renderSelected?: (request: TechRequest) => ReactNode;
 }) {
   if (!requests.length) {
     return <div className="empty">אין בקשות שתואמות לחיפוש כרגע.</div>;
@@ -1557,26 +1759,30 @@ function RequestCards({
     <div className="request-card-list">
       {requests.map((request) => {
         const requester = users.find((user) => user.id === request.requesterId);
+        const handler = users.find((user) => user.id === request.handlerId);
         const isSelected = selectedId === request.id;
         return (
-          <button
-            key={request.id}
-            type="button"
-            className={`request-card ${isSelected ? "selected" : ""}`}
-            onClick={() => onOpen(request.id)}
-          >
-            <span className="request-card-topline">
-              <span>#{request.id}</span>
-              <StatusPill status={request.status} />
-            </span>
-            <strong>{request.subjectName}</strong>
-            <span className="request-card-meta">{request.className} · {request.requestType}</span>
-            <span className="request-card-desc">{request.description}</span>
-            <span className="request-card-footer">
-              <span>{requester?.name ?? "לא ידוע"}</span>
-              <span>{request.createdAt}</span>
-            </span>
-          </button>
+          <div key={request.id} className="request-card-block">
+            <button
+              type="button"
+              className={`request-card ${isSelected ? "selected" : ""}`}
+              onClick={() => onOpen(request.id)}
+            >
+              <span className="request-card-topline">
+                <span>#{request.id}</span>
+                <StatusPill status={request.status} />
+              </span>
+              <strong>{request.subjectName}</strong>
+              <span className="request-card-meta">{request.className} · {request.requestType}</span>
+              <span className="request-card-desc">{request.description}</span>
+              <span className="request-card-footer">
+                <span>מגישה: {requester?.name ?? "לא ידוע"}</span>
+                <span>מטפל: {handler?.name ?? "טרם שובץ"}</span>
+                <span>{request.createdAt}</span>
+              </span>
+            </button>
+            {isSelected && renderSelected?.(request)}
+          </div>
         );
       })}
     </div>
@@ -1586,12 +1792,14 @@ function RequestCards({
 function RequestDetails({
   request,
   requester,
+  handler,
   student,
   onUpdate,
   onClose
 }: {
   request?: TechRequest;
   requester?: User;
+  handler?: User;
   student?: Student;
   onUpdate: (request: TechRequest) => void | Promise<void>;
   onClose: (request: TechRequest) => void | Promise<void>;
@@ -1627,6 +1835,11 @@ function RequestDetails({
           {requester?.email && <p>{requester.email}</p>}
         </div>
         <div className="detail-item">
+          <span>מטפל</span>
+          <strong>{handler?.name ?? "טרם שובץ"}</strong>
+          {handler?.email && <p>{handler.email}</p>}
+        </div>
+        <div className="detail-item">
           <span>סוג הבקשה</span>
           <strong>{request.requestType}</strong>
         </div>
@@ -1644,7 +1857,7 @@ function RequestDetails({
           <select id="status" value={request.status} onChange={(event) => onUpdate({ ...request, status: event.target.value as RequestStatus })}>
             <option value="new">חדשה</option>
             <option value="progress">בטיפול</option>
-            <option value="waiting">ממתינה למידע</option>
+            <option value="waiting">נשלח לתיקון</option>
             <option value="closed">נסגרה</option>
           </select>
         </div>
@@ -1701,7 +1914,7 @@ function CloseRequestModal({
 }: {
   request: TechRequest;
   onCancel: () => void;
-  onClose: (request: TechRequest) => void | Promise<void>;
+  onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
 }) {
   const [internalNote, setInternalNote] = useState(request.internalNote ?? "");
   const [message, setMessage] = useState("");
@@ -1743,7 +1956,7 @@ function CloseRequestModal({
                     status: "closed",
                     internalNote,
                     closingMessage: sendEmail ? message : ""
-                  })
+                  }, sendEmail)
                 }
               >
                 סגירה ושמירה
