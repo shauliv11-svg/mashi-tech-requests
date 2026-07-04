@@ -1776,16 +1776,23 @@ function RequestCards({
               onClick={() => onOpen(request.id)}
             >
               <span className="request-card-topline">
-                <span>#{request.id}</span>
+                <span className="request-id">#{request.id}</span>
                 <StatusPill status={request.status} />
               </span>
-              <strong>{request.subjectName}</strong>
-              <span className="request-card-meta">{request.className} · {request.requestType}</span>
-              <span className="request-card-desc">{request.description}</span>
-              <span className="request-card-footer">
+              <span className="request-card-main">
+                <strong>{request.subjectName}</strong>
+                <span className="class-badge">{request.className}</span>
+              </span>
+              <span className="request-card-tags">
+                <span>{request.requestType}</span>
                 <span>מגישה: {requester?.name ?? "לא ידוע"}</span>
                 <span>מטפל: {handler?.name ?? "טרם שובץ"}</span>
-                <span>{request.createdAt}</span>
+              </span>
+              <span className="request-card-desc">{request.description}</span>
+              {request.attempted && <span className="request-card-attempted">נוסה: {request.attempted}</span>}
+              <span className="request-card-footer">
+                <span>נפתחה: {request.createdAt}</span>
+                <span className="request-card-action">פתיחת פרטים</span>
               </span>
             </button>
             {isSelected && renderSelected?.(request)}
@@ -2187,7 +2194,9 @@ function StudentsAdmin({
   const historyStudent = historyStudentId ? students.find((student) => student.id === historyStudentId) : null;
   const historyRequests = useMemo(() => {
     if (!historyStudentId) return [];
-    return requests.filter((request) => request.studentId === historyStudentId);
+    return requests
+      .filter((request) => request.studentId === historyStudentId)
+      .sort((first, second) => second.id - first.id);
   }, [historyStudentId, requests]);
 
   function loadStudent(student: Student) {
@@ -2406,35 +2415,124 @@ function StudentsAdmin({
       </section>
 
       {historyStudent && (
-        <section className="panel student-history-panel">
-          <div className="panel-header">
-            <h3>היסטוריית פניות - {historyStudent.fullName}</h3>
-            <button className="btn" type="button" onClick={() => setHistoryStudentId(null)}>סגירה</button>
-          </div>
-          <div className="panel-body">
-            {historyRequests.length ? (
-              <div className="student-history-list">
-                {historyRequests.map((request) => (
-                  <article key={request.id} className="student-history-card">
-                    <div className="request-card-topline">
-                      <span>#{request.id} · {request.createdAt}</span>
-                      <StatusPill status={request.status} />
-                    </div>
-                    <strong>{request.requestType}</strong>
-                    <span className="request-card-meta">{request.className}</span>
-                    <p>{request.description}</p>
-                    {request.attempted && <p><b>מה נוסה:</b> {request.attempted}</p>}
-                    {request.closingMessage && <p><b>הודעת סגירה:</b> {request.closingMessage}</p>}
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="empty">אין פניות מתועדות לתלמיד/ה הזה כרגע.</div>
-            )}
-          </div>
-        </section>
+        <StudentRecordPanel
+          student={historyStudent}
+          requests={historyRequests}
+          onClose={() => setHistoryStudentId(null)}
+        />
       )}
     </>
+  );
+}
+
+function StudentRecordPanel({
+  student,
+  requests,
+  onClose
+}: {
+  student: Student;
+  requests: TechRequest[];
+  onClose: () => void;
+}) {
+  const stats = {
+    total: requests.length,
+    open: requests.filter((request) => request.status !== "closed").length,
+    progress: requests.filter((request) => request.status === "progress").length,
+    waiting: requests.filter((request) => request.status === "waiting").length,
+    closed: requests.filter((request) => request.status === "closed").length
+  };
+  const latestRequest = requests[0];
+
+  return (
+    <section className="panel student-record-panel">
+      <div className="student-record-hero">
+        <div>
+          <span className="section-kicker">תיק תלמיד</span>
+          <h3>{student.fullName}</h3>
+          <p>{student.className} · {student.active ? "פעיל/ה" : "מושבת/ת"}</p>
+        </div>
+        <button className="btn" type="button" onClick={onClose}>סגירה</button>
+      </div>
+      <div className="panel-body student-record-body">
+        <div className="student-record-stats" aria-label="תקציר פניות תלמיד">
+          <div>
+            <strong>{stats.total}</strong>
+            <span>סה״כ פניות</span>
+          </div>
+          <div>
+            <strong>{stats.open}</strong>
+            <span>פתוחות</span>
+          </div>
+          <div>
+            <strong>{stats.progress}</strong>
+            <span>בטיפול</span>
+          </div>
+          <div>
+            <strong>{stats.waiting}</strong>
+            <span>נשלחו לתיקון</span>
+          </div>
+          <div>
+            <strong>{stats.closed}</strong>
+            <span>נסגרו</span>
+          </div>
+        </div>
+
+        <div className="student-record-grid">
+          <section className="student-record-section">
+            <h4>מכשיר והנגשה</h4>
+            <dl className="record-fields">
+              <div><dt>סוג מכשיר</dt><dd>{student.deviceType || "לא הוזן"}</dd></div>
+              <div><dt>גורם מטפל</dt><dd>{student.careProvider || "לא הוזן"}</dd></div>
+              <div><dt>תאריך הנגשה</dt><dd>{student.accessibilityDate || "לא הוזן"}</dd></div>
+              <div><dt>עזרים נלווים</dt><dd>{student.accessories || "לא הוזן"}</dd></div>
+              {isAppleDevice(student.deviceType) && (
+                <>
+                  <div><dt>אפל איידי</dt><dd>{student.appleId || "לא הוזן"}</dd></div>
+                  <div><dt>סיסמה</dt><dd>{student.applePassword || "לא הוזן"}</dd></div>
+                </>
+              )}
+            </dl>
+          </section>
+
+          <section className="student-record-section">
+            <h4>אחריות מכשיר</h4>
+            <dl className="record-fields">
+              <div><dt>גורם אחריות</dt><dd>{student.deviceResponsibility || "לא הוזן"}</dd></div>
+              <div><dt>טלפון</dt><dd>{student.deviceResponsibilityPhone || "לא הוזן"}</dd></div>
+              <div><dt>אימייל</dt><dd>{student.deviceResponsibilityEmail || "לא הוזן"}</dd></div>
+              <div><dt>פנייה אחרונה</dt><dd>{latestRequest ? `#${latestRequest.id} · ${statusLabels[latestRequest.status]}` : "אין עדיין"}</dd></div>
+            </dl>
+          </section>
+        </div>
+
+        <section className="student-record-section full">
+          <div className="student-history-title">
+            <h4>היסטוריית פניות</h4>
+            {latestRequest && <span>האחרונה: #{latestRequest.id} · {latestRequest.createdAt}</span>}
+          </div>
+          {requests.length ? (
+            <div className="student-history-list">
+              {requests.map((request) => (
+                <article key={request.id} className={`student-history-card status-${request.status}`}>
+                  <div className="request-card-topline">
+                    <span>#{request.id} · {request.createdAt}</span>
+                    <StatusPill status={request.status} />
+                  </div>
+                  <strong>{request.requestType}</strong>
+                  <span className="request-card-meta">{request.className}</span>
+                  <p>{request.description}</p>
+                  {request.attempted && <p><b>מה נוסה:</b> {request.attempted}</p>}
+                  {request.internalNote && <p><b>הערה פנימית:</b> {request.internalNote}</p>}
+                  {request.closingMessage && <p><b>הודעת סגירה:</b> {request.closingMessage}</p>}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty">אין פניות מתועדות לתלמיד/ה הזה כרגע.</div>
+          )}
+        </section>
+      </div>
+    </section>
   );
 }
 

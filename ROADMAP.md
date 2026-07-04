@@ -14,13 +14,15 @@
 - Admin user management supports initial password setup and deleting/deactivating staff users.
 - Student admin has search and request counts per student.
 - Student admin has a per-student request history panel.
+- Student admin has a student file view with request status totals, device details, responsibility contacts, and full request history.
 - Student device responsibility is split into responsibility text, phone, and email fields.
 - Branding uses the Mashi logo and logo-dot colors.
+- Request cards have clearer hierarchy for treatment meetings, including subject, class, type, submitter, handler, and attempted solution preview.
 
 ## UX - Request Management
 
 ### In progress now
-- Improve the request card content hierarchy for faster scanning during treatment meetings.
+- Keep collecting team feedback from real request-management sessions.
 
 ### Next
 - Add saved filter presets or quick views if the team repeatedly uses the same filters.
@@ -42,7 +44,7 @@
 
 - Completed: split `גורם אחריות מכשיר` into structured fields for responsibility text, phone, and email.
 - Run `supabase/20260704_add_device_responsibility_contacts.sql` in Supabase so the new contact fields persist in production.
-- Next: richer student search/history views if the team wants student-level maintenance reports.
+- Next: exportable student maintenance reports if the team wants printable or shareable summaries.
 
 ## Notifications
 
