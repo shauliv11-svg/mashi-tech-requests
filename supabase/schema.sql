@@ -16,6 +16,8 @@ create table if not exists students (
   care_provider text check (care_provider in ('משרד הבריאות', 'משרד החינוך')),
   accessibility_date text check (accessibility_date is null or accessibility_date ~ '^[0-9]{2}/[0-9]{2}$'),
   device_responsibility text,
+  device_responsibility_phone text,
+  device_responsibility_email text,
   accessories text,
   apple_id text,
   apple_password text,
@@ -46,11 +48,11 @@ insert into app_users (id, name, email, role, class_names, active) values
   (3, 'אורי מנהל', 'admin@mashi.school', 'admin', '{}', true)
 on conflict (email) do nothing;
 
-insert into students (id, full_name, class_name, device_type, care_provider, accessibility_date, device_responsibility, accessories, apple_id, apple_password, active) values
-  (1, 'נועה לוי', 'ג׳ תקשורת', 'אייפד', 'משרד החינוך', '09/25', 'רכזת תקשוב', 'מגן קשיח, מקלדת בלוטות׳', 'noa.apple@mashi.school', 'נשמר בכספת בית הספר', true),
-  (2, 'יואב כהן', 'ד׳1', 'מחשב מיקוד מבט', 'משרד הבריאות', '11/25', 'קלינאית תקשורת', 'מתקן שולחני, זרוע למסך', null, null, true),
-  (3, 'מיכל אברהם', 'ב׳2', 'מחשב', 'משרד החינוך', '02/26', 'מחנכת הכיתה', 'עכבר מותאם', null, null, true),
-  (4, 'כיתת הדרכה קבוצתית', 'קבוצה רב גילית', null, null, null, null, null, null, null, true)
+insert into students (id, full_name, class_name, device_type, care_provider, accessibility_date, device_responsibility, device_responsibility_phone, device_responsibility_email, accessories, apple_id, apple_password, active) values
+  (1, 'נועה לוי', 'ג׳ תקשורת', 'אייפד', 'משרד החינוך', '09/25', 'רכזת תקשוב', '03-0000000', 'tikshuv@mashi.school', 'מגן קשיח, מקלדת בלוטות׳', 'noa.apple@mashi.school', 'נשמר בכספת בית הספר', true),
+  (2, 'יואב כהן', 'ד׳1', 'מחשב מיקוד מבט', 'משרד הבריאות', '11/25', 'קלינאית תקשורת', '03-0000001', 'clinic@mashi.school', 'מתקן שולחני, זרוע למסך', null, null, true),
+  (3, 'מיכל אברהם', 'ב׳2', 'מחשב', 'משרד החינוך', '02/26', 'מחנכת הכיתה', '03-0000002', 'teacher@mashi.school', 'עכבר מותאם', null, null, true),
+  (4, 'כיתת הדרכה קבוצתית', 'קבוצה רב גילית', null, null, null, null, null, null, null, null, null, true)
 on conflict (id) do nothing;
 
 insert into tech_requests (id, requester_id, subject_type, student_id, subject_name, class_name, request_type, description, attempted, status, internal_note, created_at) values

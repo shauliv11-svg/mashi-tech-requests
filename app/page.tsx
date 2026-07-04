@@ -18,6 +18,8 @@ type Student = {
   careProvider?: CareProvider;
   accessibilityDate?: string;
   deviceResponsibility?: string;
+  deviceResponsibilityPhone?: string;
+  deviceResponsibilityEmail?: string;
   accessories?: string;
   appleId?: string;
   applePassword?: string;
@@ -83,6 +85,8 @@ const initialStudents: Student[] = [
     careProvider: "משרד החינוך",
     accessibilityDate: "09/25",
     deviceResponsibility: "רכזת תקשוב",
+    deviceResponsibilityPhone: "03-0000000",
+    deviceResponsibilityEmail: "tikshuv@mashi.school",
     accessories: "מגן קשיח, מקלדת בלוטות׳",
     appleId: "noa.apple@mashi.school",
     applePassword: "נשמר בכספת בית הספר",
@@ -96,6 +100,8 @@ const initialStudents: Student[] = [
     careProvider: "משרד הבריאות",
     accessibilityDate: "11/25",
     deviceResponsibility: "קלינאית תקשורת",
+    deviceResponsibilityPhone: "03-0000001",
+    deviceResponsibilityEmail: "clinic@mashi.school",
     accessories: "מתקן שולחני, זרוע למסך",
     active: true
   },
@@ -107,6 +113,8 @@ const initialStudents: Student[] = [
     careProvider: "משרד החינוך",
     accessibilityDate: "02/26",
     deviceResponsibility: "מחנכת הכיתה",
+    deviceResponsibilityPhone: "03-0000002",
+    deviceResponsibilityEmail: "teacher@mashi.school",
     accessories: "עכבר מותאם",
     active: true
   },
@@ -226,6 +234,8 @@ function mapStudent(row: any): Student {
     careProvider: row.care_provider ?? undefined,
     accessibilityDate: row.accessibility_date ?? undefined,
     deviceResponsibility: row.device_responsibility ?? undefined,
+    deviceResponsibilityPhone: row.device_responsibility_phone ?? undefined,
+    deviceResponsibilityEmail: row.device_responsibility_email ?? undefined,
     accessories: row.accessories ?? undefined,
     appleId: row.apple_id ?? undefined,
     applePassword: row.apple_password ?? undefined,
@@ -261,8 +271,8 @@ function userPayload(user: User) {
   };
 }
 
-function studentPayload(student: Student) {
-  return {
+function studentPayload(student: Student, includeResponsibilityContacts = true) {
+  const payload: Record<string, unknown> = {
     full_name: student.fullName,
     class_name: student.className,
     device_type: student.deviceType ?? null,
@@ -274,6 +284,13 @@ function studentPayload(student: Student) {
     apple_password: student.applePassword || null,
     active: student.active
   };
+
+  if (includeResponsibilityContacts) {
+    payload.device_responsibility_phone = student.deviceResponsibilityPhone || null;
+    payload.device_responsibility_email = student.deviceResponsibilityEmail || null;
+  }
+
+  return payload;
 }
 
 function requestPayload(request: TechRequest) {
@@ -306,6 +323,7 @@ export default function Home() {
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
   const [toast, setToast] = useState("");
+  const [studentResponsibilityContactsSupported, setStudentResponsibilityContactsSupported] = useState(!isSupabaseConfigured);
 
   const authProfile = authEmail
     ? users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active) ?? null
@@ -503,10 +521,11 @@ export default function Home() {
     if (!isSupabaseConfigured || !supabase) return;
 
     async function loadData() {
-      const [usersResult, studentsResult, requestsResult] = await Promise.all([
+      const [usersResult, studentsResult, requestsResult, contactColumnsResult] = await Promise.all([
         supabase!.from("app_users").select("*").order("id"),
         supabase!.from("students").select("*").order("full_name"),
-        supabase!.from("tech_requests").select("*").order("created_at", { ascending: false })
+        supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
+        supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1)
       ]);
 
       if (usersResult.error || studentsResult.error || requestsResult.error) {
@@ -515,6 +534,7 @@ export default function Home() {
         return;
       }
 
+      setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
       setUsers((usersResult.data ?? []).map(mapUser));
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
@@ -608,7 +628,7 @@ export default function Home() {
       showToast("התלמיד/ה נוספו לרשימה.");
       return;
     }
-    const { data, error } = await supabase.from("students").insert(studentPayload(student)).select("*").single();
+    const { data, error } = await supabase.from("students").insert(studentPayload(student, studentResponsibilityContactsSupported)).select("*").single();
     if (error) {
       showToast("שמירת התלמיד/ה בדאטה בייס נכשלה.");
       return;
@@ -623,7 +643,7 @@ export default function Home() {
       showToast("פרטי התלמיד/ה נשמרו.");
       return;
     }
-    const { data, error } = await supabase.from("students").update(studentPayload(student)).eq("id", student.id).select("*").single();
+    const { data, error } = await supabase.from("students").update(studentPayload(student, studentResponsibilityContactsSupported)).eq("id", student.id).select("*").single();
     if (error) {
       showToast("שמירת התלמיד/ה בדאטה בייס נכשלה.");
       return;
@@ -638,7 +658,7 @@ export default function Home() {
       showToast(`${newStudents.length} תלמידים נוספו מהרשימה שהודבקה.`);
       return;
     }
-    const { data, error } = await supabase.from("students").insert(newStudents.map(studentPayload)).select("*");
+    const { data, error } = await supabase.from("students").insert(newStudents.map((student) => studentPayload(student, studentResponsibilityContactsSupported))).select("*");
     if (error) {
       showToast("יבוא התלמידים לדאטה בייס נכשל.");
       return;
@@ -1334,6 +1354,8 @@ function StudentDeviceDetails({ student }: { student: Student }) {
         <strong>גורם מטפל: {student.careProvider || "לא הוזן"}</strong>
         <strong>תאריך הנגשה: {student.accessibilityDate || "לא הוזן"}</strong>
         <strong>אחריות מכשיר: {student.deviceResponsibility || "לא הוזן"}</strong>
+        <strong>טלפון אחריות: {student.deviceResponsibilityPhone || "לא הוזן"}</strong>
+        <strong>אימייל אחריות: {student.deviceResponsibilityEmail || "לא הוזן"}</strong>
         <strong>עזרים נלווים: {student.accessories || "לא הוזן"}</strong>
         {isAppleDevice(student.deviceType) && (
           <>
@@ -1547,11 +1569,14 @@ function StudentsAdmin({
   const [careProvider, setCareProvider] = useState<CareProvider>("משרד החינוך");
   const [accessibilityDate, setAccessibilityDate] = useState("");
   const [deviceResponsibility, setDeviceResponsibility] = useState("");
+  const [deviceResponsibilityPhone, setDeviceResponsibilityPhone] = useState("");
+  const [deviceResponsibilityEmail, setDeviceResponsibilityEmail] = useState("");
   const [accessories, setAccessories] = useState("");
   const [appleId, setAppleId] = useState("");
   const [applePassword, setApplePassword] = useState("");
   const [bulk, setBulk] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [historyStudentId, setHistoryStudentId] = useState<number | null>(null);
 
   const studentRequestCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -1575,6 +1600,8 @@ function StudentsAdmin({
         student.careProvider,
         student.accessibilityDate,
         student.deviceResponsibility,
+        student.deviceResponsibilityPhone,
+        student.deviceResponsibilityEmail,
         student.accessories,
         requestCount
       ].filter(Boolean).join(" ").toLowerCase();
@@ -1582,6 +1609,12 @@ function StudentsAdmin({
       return searchText.includes(normalizedSearch);
     });
   }, [studentRequestCounts, studentSearch, students]);
+
+  const historyStudent = historyStudentId ? students.find((student) => student.id === historyStudentId) : null;
+  const historyRequests = useMemo(() => {
+    if (!historyStudentId) return [];
+    return requests.filter((request) => request.studentId === historyStudentId);
+  }, [historyStudentId, requests]);
 
   function loadStudent(student: Student) {
     setEditingStudentId(student.id);
@@ -1591,6 +1624,8 @@ function StudentsAdmin({
     setCareProvider(student.careProvider ?? "משרד החינוך");
     setAccessibilityDate(student.accessibilityDate ?? "");
     setDeviceResponsibility(student.deviceResponsibility ?? "");
+    setDeviceResponsibilityPhone(student.deviceResponsibilityPhone ?? "");
+    setDeviceResponsibilityEmail(student.deviceResponsibilityEmail ?? "");
     setAccessories(student.accessories ?? "");
     setAppleId(student.appleId ?? "");
     setApplePassword(student.applePassword ?? "");
@@ -1604,6 +1639,8 @@ function StudentsAdmin({
     setCareProvider("משרד החינוך");
     setAccessibilityDate("");
     setDeviceResponsibility("");
+    setDeviceResponsibilityPhone("");
+    setDeviceResponsibilityEmail("");
     setAccessories("");
     setAppleId("");
     setApplePassword("");
@@ -1620,6 +1657,8 @@ function StudentsAdmin({
       careProvider,
       accessibilityDate,
       deviceResponsibility,
+      deviceResponsibilityPhone,
+      deviceResponsibilityEmail,
       accessories,
       appleId: isAppleDevice(deviceType) ? appleId : undefined,
       applePassword: isAppleDevice(deviceType) ? applePassword : undefined,
@@ -1686,7 +1725,15 @@ function StudentsAdmin({
             </div>
             <div className="field">
               <label htmlFor="deviceResponsibility">גורם אחריות מכשיר</label>
-              <input id="deviceResponsibility" value={deviceResponsibility} onChange={(event) => setDeviceResponsibility(event.target.value)} />
+              <input id="deviceResponsibility" value={deviceResponsibility} onChange={(event) => setDeviceResponsibility(event.target.value)} placeholder="שם / תפקיד / גורם אחראי" />
+            </div>
+            <div className="field">
+              <label htmlFor="deviceResponsibilityPhone">טלפון גורם אחריות</label>
+              <input id="deviceResponsibilityPhone" value={deviceResponsibilityPhone} onChange={(event) => setDeviceResponsibilityPhone(event.target.value)} inputMode="tel" placeholder="לדוגמה: 03-0000000" />
+            </div>
+            <div className="field">
+              <label htmlFor="deviceResponsibilityEmail">אימייל גורם אחריות</label>
+              <input id="deviceResponsibilityEmail" type="email" value={deviceResponsibilityEmail} onChange={(event) => setDeviceResponsibilityEmail(event.target.value)} placeholder="name@example.com" />
             </div>
             <div className="field full">
               <label htmlFor="accessories">עזרים נלווים</label>
@@ -1764,9 +1811,18 @@ function StudentsAdmin({
                     <td data-label="סוג מכשיר">{student.deviceType ?? "-"}</td>
                     <td data-label="גורם מטפל">{student.careProvider ?? "-"}</td>
                     <td data-label="תאריך הנגשה">{student.accessibilityDate ?? "-"}</td>
-                    <td data-label="פניות"><span className="role-pill">{requestCount}</span></td>
+                    <td data-label="פניות">
+                      <button className="count-pill" type="button" onClick={() => setHistoryStudentId(student.id)}>
+                        {requestCount}
+                      </button>
+                    </td>
                     <td data-label="סטטוס">{student.active ? "פעיל" : "מושבת"}</td>
-                    <td data-label="פעולה"><button className="btn" onClick={() => loadStudent(student)}>עריכה</button></td>
+                    <td data-label="פעולה">
+                      <div className="button-row compact-actions">
+                        <button className="btn" onClick={() => loadStudent(student)}>עריכה</button>
+                        <button className="btn" type="button" onClick={() => setHistoryStudentId(student.id)}>פניות</button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -1774,6 +1830,36 @@ function StudentsAdmin({
           </table>
         </div>
       </section>
+
+      {historyStudent && (
+        <section className="panel student-history-panel">
+          <div className="panel-header">
+            <h3>היסטוריית פניות - {historyStudent.fullName}</h3>
+            <button className="btn" type="button" onClick={() => setHistoryStudentId(null)}>סגירה</button>
+          </div>
+          <div className="panel-body">
+            {historyRequests.length ? (
+              <div className="student-history-list">
+                {historyRequests.map((request) => (
+                  <article key={request.id} className="student-history-card">
+                    <div className="request-card-topline">
+                      <span>#{request.id} · {request.createdAt}</span>
+                      <StatusPill status={request.status} />
+                    </div>
+                    <strong>{request.requestType}</strong>
+                    <span className="request-card-meta">{request.className}</span>
+                    <p>{request.description}</p>
+                    {request.attempted && <p><b>מה נוסה:</b> {request.attempted}</p>}
+                    {request.closingMessage && <p><b>הודעת סגירה:</b> {request.closingMessage}</p>}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">אין פניות מתועדות לתלמיד/ה הזה כרגע.</div>
+            )}
+          </div>
+        </section>
+      )}
     </>
   );
 }

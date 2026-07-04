@@ -95,9 +95,9 @@ button {
   border-radius: 18px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.78);
-  padding: 12px;
-  box-shadow: 0 16px 34px rgba(37, 124, 172, 0.13);
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
 }
 
 .brand-mark img {
@@ -602,7 +602,7 @@ body {
   .brand-mark {
     width: 112px;
     min-height: 54px;
-    padding: 8px;
+    padding: 0;
   }
 
   .brand h1 {
@@ -1184,4 +1184,68 @@ tbody tr:hover {
   background: var(--surface-muted);
   color: var(--muted);
   font-weight: 800;
+}
+
+.count-pill {
+  min-width: 34px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--surface-muted);
+  color: var(--brand-deep);
+  font-weight: 800;
+}
+
+.count-pill:hover {
+  border-color: var(--brand);
+  background: #fff;
+}
+
+.compact-actions {
+  gap: 8px;
+}
+
+.compact-actions .btn {
+  min-height: 36px;
+  padding-inline: 12px;
+}
+
+.student-history-panel {
+  margin-top: 18px;
+}
+
+.student-history-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.student-history-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(37, 124, 172, 0.055);
+}
+
+.student-history-card strong {
+  color: var(--brand-deep);
+}
+
+.student-history-card p {
+  margin: 0;
+  color: #33483f;
+}
+
+@media (max-width: 720px) {
+  .student-history-list {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-actions .btn {
+    width: 100%;
+  }
 }

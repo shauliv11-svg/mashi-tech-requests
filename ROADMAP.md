@@ -1,5 +1,15 @@
 # Roadmap - Mashi Tech Requests
 
+## Completed
+
+- Status summary cards filter the request list by status.
+- Request details open below the list in a wider panel.
+- Request search covers request number, student, class, request type, submitter, content, attempted solution, and internal notes.
+- Student admin has search and request counts per student.
+- Student admin has a per-student request history panel.
+- Student device responsibility is split into responsibility text, phone, and email fields.
+- Branding uses the Mashi logo and logo-dot colors.
+
 ## UX - Request Management
 
 ### In progress now
@@ -14,10 +24,9 @@
 
 ## Roles And Permissions
 
-- Staff/external users should only be able to open requests and view the minimum request history that is explicitly allowed.
-- Handlers should manage and close requests but not manage users/system settings.
-- Admins should manage users, students, classes, and device/accessibility fields.
-- Confirm final policy: whether staff may view class-related requests, only their own requests, or only submit new requests.
+- Staff users can open requests and view their own requests plus requests for their assigned classes.
+- Handlers can manage and close requests, but cannot manage users or students.
+- Admins can manage requests, users, students, classes, and device/accessibility fields.
 
 ## Branding
 
@@ -27,13 +36,9 @@
 
 ## Student And Device Data
 
-- Split `גורם אחריות מכשיר` into structured fields:
-  - Name / responsibility text
-  - Phone
-  - Email
-- Add student search in the admin area.
-- Show how many requests/repairs were opened for each student.
-- Add a student detail/history view showing all requests for a specific student.
+- Completed: split `גורם אחריות מכשיר` into structured fields for responsibility text, phone, and email.
+- Run `supabase/20260704_add_device_responsibility_contacts.sql` in Supabase so the new contact fields persist in production.
+- Next: richer student search/history views if the team wants student-level maintenance reports.
 
 ## Notifications
 
