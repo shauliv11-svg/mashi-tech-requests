@@ -74,22 +74,6 @@ const requestTypes = [
   "אחר"
 ];
 
-type RequestFilters = {
-  id: string;
-  subjectName: string;
-  className: string;
-  requestType: string;
-  requesterId: string;
-};
-
-const emptyRequestFilters: RequestFilters = {
-  id: "",
-  subjectName: "",
-  className: "",
-  requestType: "all",
-  requesterId: "all"
-};
-
 const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "מחשב מיקוד מבט", "אייפד פרו"];
 const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
 
@@ -620,6 +604,33 @@ export default function Home() {
     return saved;
   }
 
+  async function deleteRequest(request: TechRequest) {
+    if (role !== "admin") {
+      showToast("רק אדמין יכול למחוק בקשות.");
+      return;
+    }
+
+    const approved = window.confirm(`למחוק את בקשה #${request.id}? הפעולה לא ניתנת לשחזור.`);
+    if (!approved) return;
+
+    if (!isSupabaseConfigured || !supabase) {
+      setRequests((items) => items.filter((item) => item.id !== request.id));
+      setSelectedRequestId(null);
+      showToast("הבקשה נמחקה.");
+      return;
+    }
+
+    const { error } = await supabase.from("tech_requests").delete().eq("id", request.id);
+    if (error) {
+      showToast("מחיקת הבקשה נכשלה.");
+      return;
+    }
+
+    setRequests((items) => items.filter((item) => item.id !== request.id));
+    setSelectedRequestId(null);
+    showToast("הבקשה נמחקה מהדאטה בייס.");
+  }
+
   async function sendRequestClosedEmail(requestId: number) {
     if (!isSupabaseConfigured || !supabase) {
       showToast("במצב דמו הבקשה נסגרה ללא שליחת מייל אמיתי.");
@@ -952,6 +963,7 @@ export default function Home() {
               await updateRequest(updated);
             }}
             onClose={closeRequest}
+            onDelete={deleteRequest}
           />
         )}
         {view === "users" && role === "admin" && currentUser && (
@@ -1565,7 +1577,8 @@ function ManageRequests({
   currentUser,
   onSelect,
   onUpdate,
-  onClose
+  onClose,
+  onDelete
 }: {
   requests: TechRequest[];
   users: User[];
@@ -1575,21 +1588,10 @@ function ManageRequests({
   onSelect: (id: number) => void;
   onUpdate: (request: TechRequest) => void | Promise<void>;
   onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
+  onDelete: (request: TechRequest) => void | Promise<void>;
 }) {
-  const [query, setQuery] = useState("");
   const [status, setStatus] = useState<RequestStatus | "all">("all");
-  const [requestFilters, setRequestFilters] = useState<RequestFilters>(emptyRequestFilters);
   const [closingRequest, setClosingRequest] = useState<TechRequest | null>(null);
-
-  function updateRequestFilter(field: keyof RequestFilters, value: string) {
-    setRequestFilters((current) => ({ ...current, [field]: value }));
-  }
-
-  function clearFilters() {
-    setQuery("");
-    setStatus("all");
-    setRequestFilters(emptyRequestFilters);
-  }
 
   function assignHandlerOnProgress(updated: TechRequest) {
     const original = requests.find((request) => request.id === updated.id);
@@ -1600,51 +1602,9 @@ function ManageRequests({
   }
 
   const filtered = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const idFilter = requestFilters.id.trim();
-    const subjectFilter = requestFilters.subjectName.trim().toLowerCase();
-    const classFilter = requestFilters.className.trim().toLowerCase();
-    const requesterFilterId = requestFilters.requesterId === "all" ? null : Number(requestFilters.requesterId);
-
-    return requests.filter((request) => {
-      const requester = users.find((user) => user.id === request.requesterId);
-      const handler = users.find((user) => user.id === request.handlerId);
-      const searchText = [
-        request.id,
-        request.subjectName,
-        request.className,
-        request.requestType,
-        request.description,
-        request.attempted,
-        request.internalNote,
-        requester?.name,
-        requester?.email,
-        handler?.name,
-        handler?.email,
-        statusLabels[request.status]
-      ].filter(Boolean).join(" ").toLowerCase();
-
-      const matchesGlobalSearch = !normalizedQuery || searchText.includes(normalizedQuery);
-      const matchesId = !idFilter || String(request.id).includes(idFilter);
-      const matchesSubject = !subjectFilter || request.subjectName.toLowerCase().includes(subjectFilter);
-      const matchesClass = !classFilter || request.className.toLowerCase().includes(classFilter);
-      const matchesType = requestFilters.requestType === "all" || request.requestType === requestFilters.requestType;
-      const matchesRequester = requesterFilterId === null || request.requesterId === requesterFilterId;
-      const matchesStatus = status === "all" || request.status === status;
-
-      return matchesGlobalSearch && matchesId && matchesSubject && matchesClass && matchesType && matchesRequester && matchesStatus;
-    });
-  }, [query, requestFilters, requests, status, users]);
-
-  const hasActiveFilters = Boolean(
-    query.trim() ||
-    status !== "all" ||
-    requestFilters.id.trim() ||
-    requestFilters.subjectName.trim() ||
-    requestFilters.className.trim() ||
-    requestFilters.requestType !== "all" ||
-    requestFilters.requesterId !== "all"
-  );
+    if (status === "all") return requests;
+    return requests.filter((request) => request.status === status);
+  }, [requests, status]);
 
   const stats = {
     new: requests.filter((request) => request.status === "new").length,
@@ -1667,50 +1627,12 @@ function ManageRequests({
         <section className="panel">
           <div className="panel-header">
             <h3>{status === "all" ? "כל הבקשות" : `בקשות בסטטוס ${statusLabels[status]}`}</h3>
+            <div className="panel-header-actions">
+              <span>{filtered.length} מתוך {requests.length} בקשות</span>
+              {status !== "all" && <button className="btn" type="button" onClick={() => setStatus("all")}>כל הבקשות</button>}
+            </div>
           </div>
           <div className="panel-body">
-            <div className="filters request-filters">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="חיפוש לפי מס׳ פנייה, תלמיד, כיתה, סוג, מגישה או תוכן הבקשה" />
-              <div className="filter-chips" aria-label="סינון לפי סטטוס">
-                <button type="button" className={status === "all" ? "active" : ""} onClick={() => setStatus("all")}>הכול</button>
-                <button type="button" className={status === "new" ? "active" : ""} onClick={() => setStatus("new")}>חדשה</button>
-                <button type="button" className={status === "progress" ? "active" : ""} onClick={() => setStatus("progress")}>בטיפול</button>
-                <button type="button" className={status === "waiting" ? "active" : ""} onClick={() => setStatus("waiting")}>לתיקון</button>
-                <button type="button" className={status === "closed" ? "active" : ""} onClick={() => setStatus("closed")}>נסגרה</button>
-              </div>
-            </div>
-            <div className="advanced-filter-grid" aria-label="סינון ממוקד לפי שדות">
-              <div className="field compact">
-                <label htmlFor="filterRequestId">מס׳ פנייה</label>
-                <input id="filterRequestId" inputMode="numeric" value={requestFilters.id} onChange={(event) => updateRequestFilter("id", event.target.value)} placeholder="לדוגמה: 103" />
-              </div>
-              <div className="field compact">
-                <label htmlFor="filterSubjectName">תלמיד/ה או כיתה</label>
-                <input id="filterSubjectName" value={requestFilters.subjectName} onChange={(event) => updateRequestFilter("subjectName", event.target.value)} placeholder="שם הפנייה" />
-              </div>
-              <div className="field compact">
-                <label htmlFor="filterClassName">כיתה</label>
-                <input id="filterClassName" value={requestFilters.className} onChange={(event) => updateRequestFilter("className", event.target.value)} placeholder="לדוגמה: ד׳1" />
-              </div>
-              <div className="field compact">
-                <label htmlFor="filterRequestType">סוג בקשה</label>
-                <select id="filterRequestType" value={requestFilters.requestType} onChange={(event) => updateRequestFilter("requestType", event.target.value)}>
-                  <option value="all">כל הסוגים</option>
-                  {requestTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                </select>
-              </div>
-              <div className="field compact">
-                <label htmlFor="filterRequester">מגישה</label>
-                <select id="filterRequester" value={requestFilters.requesterId} onChange={(event) => updateRequestFilter("requesterId", event.target.value)}>
-                  <option value="all">כל המגישות</option>
-                  {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="filter-footer">
-              <span>{filtered.length} מתוך {requests.length} בקשות</span>
-              {hasActiveFilters && <button className="btn" type="button" onClick={clearFilters}>איפוס סינון</button>}
-            </div>
             <RequestCards
               requests={filtered}
               users={users}
@@ -1724,6 +1646,8 @@ function ManageRequests({
                   student={request.id === selectedRequest?.id ? selectedRequestStudent : undefined}
                   onUpdate={(updated) => onUpdate(assignHandlerOnProgress(updated))}
                   onClose={setClosingRequest}
+                  onDelete={onDelete}
+                  canDelete={currentUser.role === "admin"}
                 />
               )}
             />
@@ -1809,7 +1733,9 @@ function RequestDetails({
   handler,
   student,
   onUpdate,
-  onClose
+  onClose,
+  onDelete,
+  canDelete = false
 }: {
   request?: TechRequest;
   requester?: User;
@@ -1817,6 +1743,8 @@ function RequestDetails({
   student?: Student;
   onUpdate: (request: TechRequest) => void | Promise<void>;
   onClose: (request: TechRequest) => void | Promise<void>;
+  onDelete?: (request: TechRequest) => void | Promise<void>;
+  canDelete?: boolean;
 }) {
   const [note, setNote] = useState("");
 
@@ -1886,6 +1814,11 @@ function RequestDetails({
           <button className="btn primary" onClick={() => onClose(request)}>
             סגירת בקשה
           </button>
+          {canDelete && onDelete && (
+            <button className="btn danger" type="button" onClick={() => onDelete(request)}>
+              מחיקת בקשה
+            </button>
+          )}
         </div>
         {request.closingMessage && (
           <div className="detail-item">

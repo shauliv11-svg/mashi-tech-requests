@@ -810,6 +810,19 @@ body {
   background: linear-gradient(180deg, #ffffff, #fbfdfb);
 }
 
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.panel-header-actions .btn {
+  min-height: 36px;
+  padding-inline: 12px;
+}
+
 .btn.primary:hover {
   background: var(--brand-dark);
 }
@@ -1278,111 +1291,6 @@ tbody tr:hover {
 }
 
 
-.request-filters {
-  grid-template-columns: minmax(220px, 1fr) auto;
-  align-items: center;
-}
-
-.filter-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.filter-chips button {
-  min-height: 40px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 13px;
-  background: #fff;
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.filter-chips button.active,
-.filter-chips button:hover {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: #fff;
-}
-
-.advanced-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(128px, 1fr));
-  gap: 12px;
-  margin: -2px 0 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface-muted);
-}
-
-.field.compact {
-  gap: 6px;
-}
-
-.field.compact label {
-  font-size: 0.82rem;
-}
-
-.field.compact input,
-.field.compact select {
-  min-height: 40px;
-  border-radius: 10px;
-  padding: 9px 10px;
-  background: #fff;
-}
-
-.filter-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.filter-footer .btn {
-  min-height: 36px;
-  padding-inline: 12px;
-}
-
-@media (max-width: 720px) {
-  .request-filters {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-chips {
-    justify-content: flex-start;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-  }
-
-  .filter-chips::-webkit-scrollbar {
-    display: none;
-  }
-
-  .filter-chips button {
-    flex: 0 0 auto;
-  }
-
-  .advanced-filter-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .filter-footer .btn {
-    width: 100%;
-  }
-}
 
 .field-help {
   color: var(--muted);
