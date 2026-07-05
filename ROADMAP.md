@@ -50,3 +50,4 @@
 
 - When a request is closed, send an email to the submitter with optional free text.
 - Later: support templates for closing messages.
+- [x] להוסיף יומן טיפול כרונולוגי לכל בקשה, עם עדכונים נפרדים שלא דורסים היסטוריה.

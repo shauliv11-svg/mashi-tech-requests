@@ -52,6 +52,14 @@ type TechRequest = {
   handlerId?: number;
 };
 
+type TreatmentUpdate = {
+  id: number;
+  requestId: number;
+  authorId: number;
+  note: string;
+  createdAt: string;
+};
+
 const roleLabels: Record<Role, string> = {
   staff: "צוות",
   handler: "מטפל/ת בבקשות",
@@ -171,6 +179,23 @@ const initialRequests: TechRequest[] = [
   }
 ];
 
+const initialTreatmentUpdates: TreatmentUpdate[] = [
+  {
+    id: 1,
+    requestId: 102,
+    authorId: 2,
+    note: "תואם טיפול ראשוני עם צוות הכיתה. נדרש לבדוק זמינות טאבלטים להדרכה.",
+    createdAt: "20.06.2026, 09:30"
+  },
+  {
+    id: 2,
+    requestId: 103,
+    authorId: 2,
+    note: "נבדק מטען חלופי. התקלה נמשכת ולכן הבקשה סומנה כנשלחה לתיקון.",
+    createdAt: "24.06.2026, 13:15"
+  }
+];
+
 const navByRole: Record<Role, { view: View; label: string; mobileLabel: string }[]> = {
   staff: [
     { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
@@ -199,6 +224,13 @@ function displayDate(value?: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return new Intl.DateTimeFormat("he-IL").format(parsed);
+}
+
+function displayDateTime(value?: string) {
+  if (!value) return new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" }).format(new Date());
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" }).format(parsed);
 }
 
 function parseClassList(value: string) {
@@ -264,6 +296,16 @@ function mapRequest(row: any): TechRequest {
   };
 }
 
+function mapTreatmentUpdate(row: any): TreatmentUpdate {
+  return {
+    id: Number(row.id),
+    requestId: Number(row.request_id),
+    authorId: Number(row.author_id),
+    note: row.note,
+    createdAt: displayDateTime(row.created_at)
+  };
+}
+
 function userPayload(user: User) {
   return {
     name: user.name,
@@ -319,12 +361,21 @@ function requestPayload(request: TechRequest, includeHandler = true) {
   return payload;
 }
 
+function treatmentUpdatePayload(update: TreatmentUpdate) {
+  return {
+    request_id: update.requestId,
+    author_id: update.authorId,
+    note: update.note
+  };
+}
+
 export default function Home() {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [view, setView] = useState<View>("login");
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [requests, setRequests] = useState<TechRequest[]>(initialRequests);
+  const [treatmentUpdates, setTreatmentUpdates] = useState<TreatmentUpdate[]>(initialTreatmentUpdates);
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
@@ -334,6 +385,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [studentResponsibilityContactsSupported, setStudentResponsibilityContactsSupported] = useState(!isSupabaseConfigured);
   const [requestHandlerSupported, setRequestHandlerSupported] = useState(!isSupabaseConfigured);
+  const [treatmentLogSupported, setTreatmentLogSupported] = useState(!isSupabaseConfigured);
 
   const authProfile = authEmail
     ? users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active) ?? null
@@ -342,6 +394,9 @@ export default function Home() {
   const role = currentUser?.role ?? "staff";
   const selectedRequest = requests.find((request) => request.id === selectedRequestId);
   const selectedRequestStudent = students.find((student) => student.id === selectedRequest?.studentId);
+  const selectedRequestUpdates = selectedRequestId
+    ? treatmentUpdates.filter((update) => update.requestId === selectedRequestId)
+    : [];
   const isAuthenticated = Boolean(currentUser);
   const canManage = currentUser?.role === "handler" || currentUser?.role === "admin";
 
@@ -531,12 +586,13 @@ export default function Home() {
     if (!isSupabaseConfigured || !supabase) return;
 
     async function loadData() {
-      const [usersResult, studentsResult, requestsResult, contactColumnsResult, handlerColumnResult] = await Promise.all([
+      const [usersResult, studentsResult, requestsResult, contactColumnsResult, handlerColumnResult, treatmentUpdatesResult] = await Promise.all([
         supabase!.from("app_users").select("*").order("id"),
         supabase!.from("students").select("*").order("full_name"),
         supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
         supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1),
-        supabase!.from("tech_requests").select("handler_id").limit(1)
+        supabase!.from("tech_requests").select("handler_id").limit(1),
+        supabase!.from("request_treatment_updates").select("*").order("created_at", { ascending: true })
       ]);
 
       if (usersResult.error || studentsResult.error || requestsResult.error) {
@@ -547,9 +603,11 @@ export default function Home() {
 
       setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
       setRequestHandlerSupported(!handlerColumnResult.error);
+      setTreatmentLogSupported(!treatmentUpdatesResult.error);
       setUsers((usersResult.data ?? []).map(mapUser));
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
+      setTreatmentUpdates(treatmentUpdatesResult.error ? [] : (treatmentUpdatesResult.data ?? []).map(mapTreatmentUpdate));
       setSelectedRequestId(null);
       setDataLoaded(true);
       showToast("הנתונים נטענו מהדאטה בייס.");
@@ -604,6 +662,42 @@ export default function Home() {
     return saved;
   }
 
+  async function addTreatmentUpdate(request: TechRequest, note: string) {
+    const trimmed = note.trim();
+    if (!trimmed || !currentUser) return;
+
+    const optimistic: TreatmentUpdate = {
+      id: Date.now(),
+      requestId: request.id,
+      authorId: currentUser.id,
+      note: trimmed,
+      createdAt: displayDateTime(new Date().toISOString())
+    };
+    const updatedRequest = { ...request, internalNote: trimmed };
+
+    if (!isSupabaseConfigured || !supabase || !treatmentLogSupported) {
+      setTreatmentUpdates((items) => [...items, optimistic]);
+      setRequests((items) => items.map((item) => (item.id === request.id ? updatedRequest : item)));
+      setSelectedRequestId(request.id);
+      showToast(treatmentLogSupported ? "העדכון נוסף ליומן הטיפול." : "העדכון נשמר מקומית. צריך להריץ SQL ליומן הטיפול כדי לשמור בדאטה בייס.");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("request_treatment_updates")
+      .insert(treatmentUpdatePayload(optimistic))
+      .select("*")
+      .single();
+
+    if (error) {
+      showToast("שמירת עדכון הטיפול נכשלה.");
+      return;
+    }
+
+    setTreatmentUpdates((items) => [...items, mapTreatmentUpdate(data)]);
+    await updateRequest(updatedRequest, "העדכון נוסף ליומן הטיפול.");
+  }
+
   async function deleteRequest(request: TechRequest) {
     if (role !== "admin") {
       showToast("רק אדמין יכול למחוק בקשות.");
@@ -615,6 +709,7 @@ export default function Home() {
 
     if (!isSupabaseConfigured || !supabase) {
       setRequests((items) => items.filter((item) => item.id !== request.id));
+      setTreatmentUpdates((items) => items.filter((item) => item.requestId !== request.id));
       setSelectedRequestId(null);
       showToast("הבקשה נמחקה.");
       return;
@@ -627,6 +722,7 @@ export default function Home() {
     }
 
     setRequests((items) => items.filter((item) => item.id !== request.id));
+    setTreatmentUpdates((items) => items.filter((item) => item.requestId !== request.id));
     setSelectedRequestId(null);
     showToast("הבקשה נמחקה מהדאטה בייס.");
   }
@@ -974,6 +1070,7 @@ export default function Home() {
             users={users}
             selectedRequest={selectedRequest}
             selectedRequestStudent={selectedRequestStudent}
+            treatmentUpdates={selectedRequestUpdates}
             currentUser={currentUser}
             onSelect={setSelectedRequestId}
             onUpdate={async (updated) => {
@@ -981,6 +1078,7 @@ export default function Home() {
             }}
             onClose={closeRequest}
             onDelete={deleteRequest}
+            onAddTreatmentUpdate={addTreatmentUpdate}
           />
         )}
         {view === "users" && role === "admin" && currentUser && (
@@ -1641,21 +1739,25 @@ function ManageRequests({
   users,
   selectedRequest,
   selectedRequestStudent,
+  treatmentUpdates,
   currentUser,
   onSelect,
   onUpdate,
   onClose,
-  onDelete
+  onDelete,
+  onAddTreatmentUpdate
 }: {
   requests: TechRequest[];
   users: User[];
   selectedRequest?: TechRequest;
   selectedRequestStudent?: Student;
+  treatmentUpdates: TreatmentUpdate[];
   currentUser: User;
   onSelect: (id: number) => void;
   onUpdate: (request: TechRequest) => void | Promise<void>;
   onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
   onDelete: (request: TechRequest) => void | Promise<void>;
+  onAddTreatmentUpdate: (request: TechRequest, note: string) => void | Promise<void>;
 }) {
   const [status, setStatus] = useState<RequestStatus | "all">("all");
   const [closingRequest, setClosingRequest] = useState<TechRequest | null>(null);
@@ -1715,6 +1817,10 @@ function ManageRequests({
                   onClose={setClosingRequest}
                   onDelete={onDelete}
                   canDelete={currentUser.role === "admin"}
+                  treatmentUpdates={request.id === selectedRequest?.id ? treatmentUpdates : []}
+                  treatmentAuthors={users}
+                  currentUser={currentUser}
+                  onAddTreatmentUpdate={onAddTreatmentUpdate}
                 />
               )}
             />
@@ -1802,7 +1908,11 @@ function RequestDetails({
   onUpdate,
   onClose,
   onDelete,
-  canDelete = false
+  canDelete = false,
+  treatmentUpdates = [],
+  treatmentAuthors = [],
+  currentUser,
+  onAddTreatmentUpdate
 }: {
   request?: TechRequest;
   requester?: User;
@@ -1812,8 +1922,13 @@ function RequestDetails({
   onClose: (request: TechRequest) => void | Promise<void>;
   onDelete?: (request: TechRequest) => void | Promise<void>;
   canDelete?: boolean;
+  treatmentUpdates?: TreatmentUpdate[];
+  treatmentAuthors?: User[];
+  currentUser: User;
+  onAddTreatmentUpdate: (request: TechRequest, note: string) => void | Promise<void>;
 }) {
   const [note, setNote] = useState("");
+  const [treatmentNote, setTreatmentNote] = useState("");
 
   if (!request) {
     return (
@@ -1861,6 +1976,52 @@ function RequestDetails({
           <p>{request.attempted || "לא הוזן מידע נוסף."}</p>
         </div>
         {student && <StudentDeviceDetails student={student} />}
+        <div className="treatment-log">
+          <div className="treatment-log-header">
+            <h4>יומן טיפול</h4>
+            <span>{treatmentUpdates.length} עדכונים</span>
+          </div>
+          <div className="treatment-log-form">
+            <div className="field full">
+              <label htmlFor={`treatment-${request.id}`}>עדכון חדש ביומן</label>
+              <textarea
+                id={`treatment-${request.id}`}
+                value={treatmentNote}
+                onChange={(event) => setTreatmentNote(event.target.value)}
+                placeholder="מה נעשה? עם מי דיברנו? מה השלב הבא?"
+              />
+            </div>
+            <button
+              className="btn primary"
+              type="button"
+              disabled={!treatmentNote.trim()}
+              onClick={async () => {
+                await onAddTreatmentUpdate(request, treatmentNote);
+                setTreatmentNote("");
+              }}
+            >
+              הוספת עדכון
+            </button>
+          </div>
+          <div className="treatment-log-list">
+            {treatmentUpdates.length ? (
+              treatmentUpdates.map((update) => {
+                const author = treatmentAuthors.find((user) => user.id === update.authorId);
+                return (
+                  <article className="treatment-log-entry" key={update.id}>
+                    <div>
+                      <strong>{author?.name ?? currentUser.name}</strong>
+                      <span>{update.createdAt}</span>
+                    </div>
+                    <p>{update.note}</p>
+                  </article>
+                );
+              })
+            ) : (
+              <div className="empty compact">אין עדיין עדכונים ביומן הטיפול.</div>
+            )}
+          </div>
+        </div>
         <div className="field">
           <label htmlFor="status">סטטוס</label>
           <select id="status" value={request.status} onChange={(event) => onUpdate({ ...request, status: event.target.value as RequestStatus })}>
@@ -1871,7 +2032,7 @@ function RequestDetails({
           </select>
         </div>
         <div className="field">
-          <label htmlFor="note">הערה פנימית</label>
+          <label htmlFor="note">תקציר פנימי אחרון</label>
           <textarea id="note" value={note || request.internalNote || ""} onChange={(event) => setNote(event.target.value)} />
         </div>
         <div className="button-row">
