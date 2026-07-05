@@ -173,19 +173,19 @@ const initialRequests: TechRequest[] = [
 
 const navByRole: Record<Role, { view: View; label: string; mobileLabel: string }[]> = {
   staff: [
-    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
-    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
+    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
+    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" }
   ],
   handler: [
-    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול" },
-    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
-    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
+    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול בקשות" },
+    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
+    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" }
   ],
   admin: [
-    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול" },
-    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
-    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" },
-    { view: "users", label: "משתמשים", mobileLabel: "צוות" },
+    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול בקשות" },
+    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
+    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" },
+    { view: "users", label: "משתמשים", mobileLabel: "משתמשים" },
     { view: "students", label: "תלמידים", mobileLabel: "תלמידים" }
   ]
 };
@@ -924,6 +924,7 @@ export default function Home() {
               onClick={() => navigate(item.view)}
               aria-current={view === item.view ? "page" : undefined}
             >
+              <MobileNavIcon view={item.view} />
               <span>{item.mobileLabel}</span>
             </button>
           ))}
@@ -1004,6 +1005,56 @@ export default function Home() {
       </section>
     </main>
   );
+}
+
+function MobileNavIcon({ view }: { view: View }) {
+  if (view === "manageRequests") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 6h14M5 12h14M5 18h8" />
+      </svg>
+    );
+  }
+
+  if (view === "myRequests") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 4h10v16H7z" />
+        <path d="M9.5 8h5M9.5 12h5M9.5 16h3" />
+      </svg>
+    );
+  }
+
+  if (view === "newRequest") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    );
+  }
+
+  if (view === "users") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+        <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+        <path d="M17 10a2.5 2.5 0 1 0 0-5" />
+        <path d="M16 14.5a4.5 4.5 0 0 1 4.5 4.5" />
+      </svg>
+    );
+  }
+
+  if (view === "students") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 4 4 8l8 4 8-4-8-4z" />
+        <path d="M7 10.5V15c0 1.8 2.2 3 5 3s5-1.2 5-3v-4.5" />
+        <path d="M20 8v6" />
+      </svg>
+    );
+  }
+
+  return null;
 }
 
 function LoginScreen({
