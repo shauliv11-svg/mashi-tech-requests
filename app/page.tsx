@@ -84,6 +84,24 @@ const requestTypes = [
 
 const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "מחשב מיקוד מבט", "אייפד פרו"];
 const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
+const studentImportHeaders = [
+  "שם תלמיד/ה",
+  "כיתה",
+  "סוג מכשיר",
+  "גורם מטפל",
+  "תאריך הנגשה",
+  "גורם אחריות מכשיר",
+  "טלפון גורם אחריות",
+  "אימייל גורם אחריות",
+  "עזרים נלווים",
+  "אפל איידי",
+  "סיסמה",
+  "פעיל"
+];
+const studentImportExampleRows = [
+  ["נועה לוי", "ג׳ תקשורת", "אייפד", "משרד החינוך", "09/25", "רכזת תקשוב", "03-0000000", "tikshuv@mashi.school", "מגן קשיח, מקלדת בלוטות׳", "noa.apple@mashi.school", "", "כן"],
+  ["יואב כהן", "ד׳1", "מחשב מיקוד מבט", "משרד הבריאות", "11/25", "קלינאית תקשורת", "03-0000001", "clinic@mashi.school", "מתקן שולחני", "", "", "כן"]
+];
 
 const initialStudents: Student[] = [
   {
@@ -246,6 +264,101 @@ function formatClassList(classNames?: string[]) {
 
 function isAppleDevice(deviceType?: DeviceType) {
   return deviceType === "אייפד" || deviceType === "אייפד פרו";
+}
+
+function normalizeDeviceType(value?: string): DeviceType | undefined {
+  const trimmed = value?.trim();
+  return deviceTypes.find((type) => type === trimmed);
+}
+
+function normalizeCareProvider(value?: string): CareProvider | undefined {
+  const trimmed = value?.trim();
+  return careProviders.find((provider) => provider === trimmed);
+}
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function studentTemplateCsv() {
+  const rows = [studentImportHeaders, ...studentImportExampleRows];
+  return `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\n")}`;
+}
+
+function parseDelimitedLine(line: string, delimiter: string) {
+  const cells: string[] = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      cell += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (char === delimiter && !quoted) {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  cells.push(cell.trim());
+  return cells;
+}
+
+function parseStudentImportRows(text: string): Student[] {
+  const lines = text
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+
+  const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
+  const rows = lines.map((line) => parseDelimitedLine(line, delimiter));
+  const firstRow = rows[0].join(" ");
+  const dataRows = firstRow.includes("שם") && firstRow.includes("כיתה") ? rows.slice(1) : rows;
+
+  const parsed: Student[] = [];
+  dataRows.forEach((row, index) => {
+    const [name, classValue, deviceValue, providerValue, accessibilityValue, responsibilityValue, phoneValue, emailValue, accessoriesValue, appleIdValue, applePasswordValue, activeValue] = row;
+    const fullName = name?.trim();
+    const className = classValue?.trim();
+    if (!fullName || !className) return;
+    const deviceType = normalizeDeviceType(deviceValue) ?? "מחשב";
+    const activeText = activeValue?.trim().toLowerCase();
+    const active = !["לא", "false", "0", "מושבת", "מושבתת"].includes(activeText ?? "");
+
+    parsed.push({
+      id: Date.now() + index,
+      fullName,
+      className,
+      deviceType,
+      careProvider: normalizeCareProvider(providerValue) ?? "משרד החינוך",
+      accessibilityDate: accessibilityValue?.trim() || undefined,
+      deviceResponsibility: responsibilityValue?.trim() || undefined,
+      deviceResponsibilityPhone: phoneValue?.trim() || undefined,
+      deviceResponsibilityEmail: emailValue?.trim() || undefined,
+      accessories: accessoriesValue?.trim() || undefined,
+      appleId: isAppleDevice(deviceType) ? appleIdValue?.trim() || undefined : undefined,
+      applePassword: isAppleDevice(deviceType) ? applePasswordValue?.trim() || undefined : undefined,
+      active
+    });
+  });
+
+  return parsed;
 }
 
 function mapUser(row: any): User {
@@ -2341,6 +2454,8 @@ function StudentsAdmin({
   const [studentSearch, setStudentSearch] = useState("");
   const [studentHistoryFilter, setStudentHistoryFilter] = useState<"all" | "repairs">("all");
   const [historyStudentId, setHistoryStudentId] = useState<number | null>(null);
+  const [studentFormOpen, setStudentFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const studentRequestCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -2412,6 +2527,7 @@ function StudentsAdmin({
     setAccessories(student.accessories ?? "");
     setAppleId(student.appleId ?? "");
     setApplePassword(student.applePassword ?? "");
+    setStudentFormOpen(true);
   }
 
   function resetForm() {
@@ -2427,6 +2543,16 @@ function StudentsAdmin({
     setAccessories("");
     setAppleId("");
     setApplePassword("");
+  }
+
+  function openNewStudent() {
+    resetForm();
+    setStudentFormOpen(true);
+  }
+
+  function closeStudentForm() {
+    setStudentFormOpen(false);
+    resetForm();
   }
 
   function saveStudent(event: FormEvent<HTMLFormElement>) {
@@ -2453,120 +2579,60 @@ function StudentsAdmin({
     } else {
       onAdd(student);
     }
-    resetForm();
+    closeStudentForm();
   }
 
-  function importStudents() {
-    const parsed = bulk
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line, index) => {
-        const [name, classValue] = line.split(/\t|,| {2,}/).map((part) => part.trim());
-        return name && classValue ? { id: Date.now() + index, fullName: name, className: classValue, active: true } : null;
-      })
-      .filter((student): student is Student => Boolean(student));
+  function downloadStudentTemplate() {
+    const blob = new Blob([studentTemplateCsv()], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "mashi-students-template.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 
+  function importStudentsFromText(text: string) {
+    const parsed = parseStudentImportRows(text);
     if (!parsed.length) return;
     onImport(parsed);
     setBulk("");
+    setImportOpen(false);
+  }
+
+  function importStudents() {
+    importStudentsFromText(bulk);
+  }
+
+  function uploadStudentImportFile(file?: File) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => importStudentsFromText(String(reader.result ?? ""));
+    reader.readAsText(file, "utf-8");
   }
 
   return (
     <>
-      <Topbar title="ניהול תלמידים" subtitle="המידע הטכני מוצג רק לאדמין, מטפל/ת בבקשות ובפרטי בקשה ניהוליים." />
-      <section className="panel">
-        <div className="panel-header">
-          <h3>{editingStudent ? "עריכת תלמיד/ה" : "הוספת תלמיד/ה"}</h3>
-          {editingStudent && <button className="btn" onClick={resetForm}>תלמיד/ה חדש/ה</button>}
-        </div>
-        <div className="panel-body">
-          <form className="form-grid" onSubmit={saveStudent}>
-            <div className="field">
-              <label htmlFor="studentName">שם תלמיד/ה</label>
-              <input id="studentName" value={fullName} onChange={(event) => setFullName(event.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="className">כיתה</label>
-              <input id="className" value={className} onChange={(event) => setClassName(event.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="deviceType">סוג המכשיר</label>
-              <select id="deviceType" value={deviceType} onChange={(event) => setDeviceType(event.target.value as DeviceType)}>
-                {deviceTypes.map((type) => <option key={type}>{type}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="careProvider">מי הגורם המטפל</label>
-              <select id="careProvider" value={careProvider} onChange={(event) => setCareProvider(event.target.value as CareProvider)}>
-                {careProviders.map((provider) => <option key={provider}>{provider}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="accessibilityDate">תאריך הנגשה</label>
-              <input id="accessibilityDate" value={accessibilityDate} onChange={(event) => setAccessibilityDate(event.target.value)} placeholder="MM/YY" pattern="[0-9]{2}/[0-9]{2}" />
-            </div>
-            <div className="field">
-              <label htmlFor="deviceResponsibility">גורם אחריות מכשיר</label>
-              <input id="deviceResponsibility" value={deviceResponsibility} onChange={(event) => setDeviceResponsibility(event.target.value)} placeholder="שם / תפקיד / גורם אחראי" />
-            </div>
-            <div className="field">
-              <label htmlFor="deviceResponsibilityPhone">טלפון גורם אחריות</label>
-              <input id="deviceResponsibilityPhone" value={deviceResponsibilityPhone} onChange={(event) => setDeviceResponsibilityPhone(event.target.value)} inputMode="tel" placeholder="לדוגמה: 03-0000000" />
-            </div>
-            <div className="field">
-              <label htmlFor="deviceResponsibilityEmail">אימייל גורם אחריות</label>
-              <input id="deviceResponsibilityEmail" type="email" value={deviceResponsibilityEmail} onChange={(event) => setDeviceResponsibilityEmail(event.target.value)} placeholder="name@example.com" />
-            </div>
-            <div className="field full">
-              <label htmlFor="accessories">עזרים נלווים</label>
-              <textarea id="accessories" value={accessories} onChange={(event) => setAccessories(event.target.value)} />
-            </div>
-            {isAppleDevice(deviceType) && (
-              <>
-                <div className="field">
-                  <label htmlFor="appleId">אפל איידי</label>
-                  <input id="appleId" type="email" value={appleId} onChange={(event) => setAppleId(event.target.value)} />
-                </div>
-                <div className="field">
-                  <label htmlFor="applePassword">סיסמה</label>
-                  <input id="applePassword" value={applePassword} onChange={(event) => setApplePassword(event.target.value)} />
-                </div>
-              </>
-            )}
-            <div className="field full">
-              <button className="btn primary" type="submit">
-                שמירה
-              </button>
-            </div>
-          </form>
-        </div>
-      </section>
+      <Topbar
+        title="ניהול תלמידים"
+        subtitle="חיפוש מהיר, תיק תלמיד והיסטוריית פניות במקום אחד."
+        action={(
+          <>
+            <button className="btn" type="button" onClick={() => setImportOpen(true)}>יבוא מטבלה</button>
+            <button className="btn primary" type="button" onClick={openNewStudent}>הוספת תלמיד/ה</button>
+          </>
+        )}
+      />
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel students-directory-panel">
         <div className="panel-header">
-          <h3>יבוא מהיר מטבלה</h3>
-        </div>
-        <div className="panel-body">
-          <div className="field">
-            <label htmlFor="bulk">הדבקת שורות מאקסל: שם תלמיד ואז כיתה</label>
-            <textarea id="bulk" value={bulk} onChange={(event) => setBulk(event.target.value)} placeholder={"נועה לוי\tג׳ תקשורת\nיואב כהן\tד׳1"} />
-          </div>
-          <div className="button-row" style={{ marginTop: 12 }}>
-            <button className="btn" type="button" onClick={importStudents}>
-              יבוא תלמידים
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="panel" style={{ marginTop: 18 }}>
-        <div className="panel-header">
-          <h3>רשימת תלמידים</h3>
+          <h3>תלמידים</h3>
         </div>
         <div className="panel-body compact-panel-body">
           <div className="student-search-tools">
-            <input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="חיפוש תלמיד/ה לפי שם, כיתה, מכשיר, גורם מטפל או מספר תיקונים" />
+            <input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="חיפוש לפי שם, כיתה, מכשיר, גורם מטפל או מספר תיקונים" />
             <div className="segmented compact-segmented" aria-label="סינון תלמידים לפי היסטוריית תיקונים">
               <button type="button" className={`segment ${studentHistoryFilter === "all" ? "active" : ""}`} onClick={() => setStudentHistoryFilter("all")}>
                 כל התלמידים
@@ -2581,63 +2647,156 @@ function StudentsAdmin({
             </div>
           </div>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>שם תלמיד/ה</th>
-                <th>כיתה</th>
-                <th>סוג מכשיר</th>
-                <th>גורם מטפל</th>
-                <th>תאריך הנגשה</th>
-                <th>פניות</th>
-                <th>תיקונים</th>
-                <th>סטטוס</th>
-                <th>פעולה</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStudents.map((student) => {
-                const requestCount = studentRequestCounts.get(student.id) ?? 0;
-                const repairCount = studentRepairCounts.get(student.id) ?? 0;
-                return (
-                  <tr key={student.id}>
-                    <td data-label="שם תלמיד/ה">{student.fullName}</td>
-                    <td data-label="כיתה">{student.className}</td>
-                    <td data-label="סוג מכשיר">{student.deviceType ?? "-"}</td>
-                    <td data-label="גורם מטפל">{student.careProvider ?? "-"}</td>
-                    <td data-label="תאריך הנגשה">{student.accessibilityDate ?? "-"}</td>
-                    <td data-label="פניות">
-                      <button className="count-pill" type="button" onClick={() => setHistoryStudentId(student.id)}>
-                        {requestCount}
-                      </button>
-                    </td>
-                    <td data-label="תיקונים">
-                      <button className={`count-pill ${repairCount ? "repair" : "muted"}`} type="button" onClick={() => setHistoryStudentId(student.id)}>
-                        {repairCount}
-                      </button>
-                    </td>
-                    <td data-label="סטטוס">{student.active ? "פעיל" : "מושבת"}</td>
-                    <td data-label="פעולה">
-                      <div className="button-row compact-actions">
-                        <button className="btn" onClick={() => loadStudent(student)}>עריכה</button>
-                        <button className="btn" type="button" onClick={() => setHistoryStudentId(student.id)}>פניות</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="student-card-grid">
+          {filteredStudents.length ? (
+            filteredStudents.map((student) => {
+              const requestCount = studentRequestCounts.get(student.id) ?? 0;
+              const repairCount = studentRepairCounts.get(student.id) ?? 0;
+              return (
+                <button className="student-card" type="button" key={student.id} onClick={() => setHistoryStudentId(student.id)}>
+                  <span className="student-card-topline">
+                    <span className={`student-status-dot ${student.active ? "active" : "inactive"}`} />
+                    <span>{student.active ? "פעיל/ה" : "מושבת/ת"}</span>
+                  </span>
+                  <strong>{student.fullName}</strong>
+                  <span className="class-badge">{student.className}</span>
+                  <span className="student-card-device">{student.deviceType || "לא הוזן מכשיר"}</span>
+                  <span className="student-card-stats">
+                    <span>{requestCount} פניות</span>
+                    <span className={repairCount ? "repair" : ""}>{repairCount} תיקונים</span>
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <div className="empty soft-empty">אין תלמידים שתואמים לחיפוש כרגע.</div>
+          )}
         </div>
       </section>
 
+      {studentFormOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={editingStudent ? "עריכת תלמיד" : "הוספת תלמיד"}>
+          <section className="modal student-form-modal">
+            <div className="panel-header">
+              <h3>{editingStudent ? "עריכת תלמיד/ה" : "הוספת תלמיד/ה"}</h3>
+              <button className="btn" type="button" onClick={closeStudentForm}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <form className="form-grid" onSubmit={saveStudent}>
+                <div className="field">
+                  <label htmlFor="studentName">שם תלמיד/ה</label>
+                  <input id="studentName" value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="className">כיתה</label>
+                  <input id="className" value={className} onChange={(event) => setClassName(event.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="deviceType">סוג המכשיר</label>
+                  <select id="deviceType" value={deviceType} onChange={(event) => setDeviceType(event.target.value as DeviceType)}>
+                    {deviceTypes.map((type) => <option key={type}>{type}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="careProvider">מי הגורם המטפל</label>
+                  <select id="careProvider" value={careProvider} onChange={(event) => setCareProvider(event.target.value as CareProvider)}>
+                    {careProviders.map((provider) => <option key={provider}>{provider}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="accessibilityDate">תאריך הנגשה</label>
+                  <input id="accessibilityDate" value={accessibilityDate} onChange={(event) => setAccessibilityDate(event.target.value)} placeholder="MM/YY" pattern="[0-9]{2}/[0-9]{2}" />
+                </div>
+                <div className="field">
+                  <label htmlFor="deviceResponsibility">גורם אחריות מכשיר</label>
+                  <input id="deviceResponsibility" value={deviceResponsibility} onChange={(event) => setDeviceResponsibility(event.target.value)} placeholder="שם / תפקיד / גורם אחראי" />
+                </div>
+                <div className="field">
+                  <label htmlFor="deviceResponsibilityPhone">טלפון גורם אחריות</label>
+                  <input id="deviceResponsibilityPhone" value={deviceResponsibilityPhone} onChange={(event) => setDeviceResponsibilityPhone(event.target.value)} inputMode="tel" placeholder="לדוגמה: 03-0000000" />
+                </div>
+                <div className="field">
+                  <label htmlFor="deviceResponsibilityEmail">אימייל גורם אחריות</label>
+                  <input id="deviceResponsibilityEmail" type="email" value={deviceResponsibilityEmail} onChange={(event) => setDeviceResponsibilityEmail(event.target.value)} placeholder="name@example.com" />
+                </div>
+                <div className="field full">
+                  <label htmlFor="accessories">עזרים נלווים</label>
+                  <textarea id="accessories" value={accessories} onChange={(event) => setAccessories(event.target.value)} />
+                </div>
+                {isAppleDevice(deviceType) && (
+                  <>
+                    <div className="field">
+                      <label htmlFor="appleId">אפל איידי</label>
+                      <input id="appleId" type="email" value={appleId} onChange={(event) => setAppleId(event.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="applePassword">סיסמה</label>
+                      <input id="applePassword" value={applePassword} onChange={(event) => setApplePassword(event.target.value)} />
+                    </div>
+                  </>
+                )}
+                <div className="field full button-row">
+                  <button className="btn" type="button" onClick={closeStudentForm}>ביטול</button>
+                  <button className="btn primary" type="submit">שמירה</button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="יבוא תלמידים מטבלה">
+          <section className="modal student-import-modal">
+            <div className="panel-header">
+              <h3>יבוא תלמידים מטבלה</h3>
+              <button className="btn" type="button" onClick={() => setImportOpen(false)}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <div className="import-template-box">
+                <div>
+                  <strong>תבנית תלמידים למילוי</strong>
+                  <p>הקובץ נפתח באקסל או Google Sheets וכולל את כל השדות שהמערכת יכולה לקלוט.</p>
+                </div>
+                <button className="btn" type="button" onClick={downloadStudentTemplate}>הורדת תבנית</button>
+              </div>
+              <div className="field">
+                <label htmlFor="studentImportFile">העלאת קובץ לפי התבנית</label>
+                <input
+                  id="studentImportFile"
+                  type="file"
+                  accept=".csv,.tsv,.txt"
+                  onChange={(event) => uploadStudentImportFile(event.target.files?.[0])}
+                />
+                <span className="field-help">אפשר לשמור מאקסל כ-CSV ולהעלות כאן.</span>
+              </div>
+              <div className="field">
+                <label htmlFor="bulk">או הדבקת שורות מאקסל</label>
+                <textarea id="bulk" value={bulk} onChange={(event) => setBulk(event.target.value)} placeholder={studentImportHeaders.join("\t")} />
+              </div>
+              <div className="button-row" style={{ marginTop: 12 }}>
+                <button className="btn" type="button" onClick={() => setImportOpen(false)}>ביטול</button>
+                <button className="btn primary" type="button" onClick={importStudents}>יבוא תלמידים</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {historyStudent && (
-        <StudentRecordPanel
-          student={historyStudent}
-          requests={historyRequests}
-          onClose={() => setHistoryStudentId(null)}
-        />
+        <div className="modal-backdrop student-record-backdrop" role="dialog" aria-modal="true" aria-label={`תיק תלמיד ${historyStudent.fullName}`}>
+          <div className="student-record-modal">
+            <StudentRecordPanel
+              student={historyStudent}
+              requests={historyRequests}
+              onClose={() => setHistoryStudentId(null)}
+              onEdit={() => {
+                setHistoryStudentId(null);
+                loadStudent(historyStudent);
+              }}
+            />
+          </div>
+        </div>
       )}
     </>
   );
@@ -2646,11 +2805,13 @@ function StudentsAdmin({
 function StudentRecordPanel({
   student,
   requests,
-  onClose
+  onClose,
+  onEdit
 }: {
   student: Student;
   requests: TechRequest[];
   onClose: () => void;
+  onEdit?: () => void;
 }) {
   const stats = {
     total: requests.length,
@@ -2670,7 +2831,10 @@ function StudentRecordPanel({
           <h3>{student.fullName}</h3>
           <p>{student.className} · {student.active ? "פעיל/ה" : "מושבת/ת"}</p>
         </div>
-        <button className="btn" type="button" onClick={onClose}>סגירה</button>
+        <div className="button-row">
+          {onEdit && <button className="btn" type="button" onClick={onEdit}>עריכה</button>}
+          <button className="btn" type="button" onClick={onClose}>סגירה</button>
+        </div>
       </div>
       <div className="panel-body student-record-body">
         <div className="student-record-stats" aria-label="תקציר פניות תלמיד">
