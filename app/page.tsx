@@ -325,7 +325,7 @@ export default function Home() {
   const [view, setView] = useState<View>("login");
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [requests, setRequests] = useState<TechRequest[]>(initialRequests);
-  const [selectedRequestId, setSelectedRequestId] = useState<number | null>(101);
+  const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [dataLoaded, setDataLoaded] = useState(!isSupabaseConfigured);
@@ -550,7 +550,7 @@ export default function Home() {
       setUsers((usersResult.data ?? []).map(mapUser));
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
-      setSelectedRequestId(requestsResult.data?.[0]?.id ? Number(requestsResult.data[0].id) : null);
+      setSelectedRequestId(null);
       setDataLoaded(true);
       showToast("הנתונים נטענו מהדאטה בייס.");
     }
