@@ -2339,6 +2339,7 @@ function StudentsAdmin({
   const [applePassword, setApplePassword] = useState("");
   const [bulk, setBulk] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [studentHistoryFilter, setStudentHistoryFilter] = useState<"all" | "repairs">("all");
   const [historyStudentId, setHistoryStudentId] = useState<number | null>(null);
 
   const studentRequestCounts = useMemo(() => {
@@ -2350,12 +2351,27 @@ function StudentsAdmin({
     return counts;
   }, [requests]);
 
+  const studentRepairCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    requests.forEach((request) => {
+      if (!request.studentId || request.requestType !== "תקלה בציוד") return;
+      counts.set(request.studentId, (counts.get(request.studentId) ?? 0) + 1);
+    });
+    return counts;
+  }, [requests]);
+
+  const studentsWithRepairs = useMemo(
+    () => students.filter((student) => (studentRepairCounts.get(student.id) ?? 0) > 0).length,
+    [studentRepairCounts, students]
+  );
+
   const filteredStudents = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
-    if (!normalizedSearch) return students;
 
     return students.filter((student) => {
       const requestCount = studentRequestCounts.get(student.id) ?? 0;
+      const repairCount = studentRepairCounts.get(student.id) ?? 0;
+      if (studentHistoryFilter === "repairs" && repairCount === 0) return false;
       const searchText = [
         student.fullName,
         student.className,
@@ -2366,12 +2382,14 @@ function StudentsAdmin({
         student.deviceResponsibilityPhone,
         student.deviceResponsibilityEmail,
         student.accessories,
-        requestCount
+        requestCount,
+        repairCount,
+        repairCount ? "תיקון תקלה ציוד" : ""
       ].filter(Boolean).join(" ").toLowerCase();
 
-      return searchText.includes(normalizedSearch);
+      return !normalizedSearch || searchText.includes(normalizedSearch);
     });
-  }, [studentRequestCounts, studentSearch, students]);
+  }, [studentHistoryFilter, studentRepairCounts, studentRequestCounts, studentSearch, students]);
 
   const historyStudent = historyStudentId ? students.find((student) => student.id === historyStudentId) : null;
   const historyRequests = useMemo(() => {
@@ -2547,9 +2565,20 @@ function StudentsAdmin({
           <h3>רשימת תלמידים</h3>
         </div>
         <div className="panel-body compact-panel-body">
-          <div className="filters two">
-            <input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="חיפוש תלמיד/ה לפי שם, כיתה, מכשיר או גורם מטפל" />
-            <div className="result-count">{filteredStudents.length} מתוך {students.length} תלמידים</div>
+          <div className="student-search-tools">
+            <input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="חיפוש תלמיד/ה לפי שם, כיתה, מכשיר, גורם מטפל או מספר תיקונים" />
+            <div className="segmented compact-segmented" aria-label="סינון תלמידים לפי היסטוריית תיקונים">
+              <button type="button" className={`segment ${studentHistoryFilter === "all" ? "active" : ""}`} onClick={() => setStudentHistoryFilter("all")}>
+                כל התלמידים
+              </button>
+              <button type="button" className={`segment ${studentHistoryFilter === "repairs" ? "active" : ""}`} onClick={() => setStudentHistoryFilter("repairs")}>
+                עם תיקונים
+              </button>
+            </div>
+            <div className="student-search-summary">
+              <strong>{filteredStudents.length}</strong>
+              <span>מתוך {students.length} תלמידים · {studentsWithRepairs} עם תיקונים</span>
+            </div>
           </div>
         </div>
         <div className="table-wrap">
@@ -2562,6 +2591,7 @@ function StudentsAdmin({
                 <th>גורם מטפל</th>
                 <th>תאריך הנגשה</th>
                 <th>פניות</th>
+                <th>תיקונים</th>
                 <th>סטטוס</th>
                 <th>פעולה</th>
               </tr>
@@ -2569,6 +2599,7 @@ function StudentsAdmin({
             <tbody>
               {filteredStudents.map((student) => {
                 const requestCount = studentRequestCounts.get(student.id) ?? 0;
+                const repairCount = studentRepairCounts.get(student.id) ?? 0;
                 return (
                   <tr key={student.id}>
                     <td data-label="שם תלמיד/ה">{student.fullName}</td>
@@ -2579,6 +2610,11 @@ function StudentsAdmin({
                     <td data-label="פניות">
                       <button className="count-pill" type="button" onClick={() => setHistoryStudentId(student.id)}>
                         {requestCount}
+                      </button>
+                    </td>
+                    <td data-label="תיקונים">
+                      <button className={`count-pill ${repairCount ? "repair" : "muted"}`} type="button" onClick={() => setHistoryStudentId(student.id)}>
+                        {repairCount}
                       </button>
                     </td>
                     <td data-label="סטטוס">{student.active ? "פעיל" : "מושבת"}</td>
@@ -2618,6 +2654,7 @@ function StudentRecordPanel({
 }) {
   const stats = {
     total: requests.length,
+    repairs: requests.filter((request) => request.requestType === "תקלה בציוד").length,
     open: requests.filter((request) => request.status !== "closed").length,
     progress: requests.filter((request) => request.status === "progress").length,
     waiting: requests.filter((request) => request.status === "waiting").length,
@@ -2640,6 +2677,10 @@ function StudentRecordPanel({
           <div>
             <strong>{stats.total}</strong>
             <span>סה״כ פניות</span>
+          </div>
+          <div>
+            <strong>{stats.repairs}</strong>
+            <span>תיקונים</span>
           </div>
           <div>
             <strong>{stats.open}</strong>

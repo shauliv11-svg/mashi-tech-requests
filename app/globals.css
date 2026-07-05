@@ -1710,6 +1710,42 @@ tbody tr:hover {
   font-weight: 800;
 }
 
+.student-search-tools {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(180px, auto);
+  gap: 12px;
+  align-items: center;
+}
+
+.compact-segmented {
+  min-width: 260px;
+}
+
+.compact-segmented .segment {
+  min-height: 42px;
+  padding: 8px 14px;
+}
+
+.student-search-summary {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--dot-cyan) 34%, white);
+  border-radius: 12px;
+  background: #f5fcff;
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.student-search-summary strong {
+  color: var(--brand-deep);
+  font-size: 1.1rem;
+}
+
 .count-pill {
   min-width: 34px;
   min-height: 30px;
@@ -1724,6 +1760,17 @@ tbody tr:hover {
 .count-pill:hover {
   border-color: var(--brand);
   background: #fff;
+}
+
+.count-pill.repair {
+  border-color: color-mix(in srgb, var(--dot-yellow) 68%, white);
+  background: #fff8df;
+  color: #7a5200;
+}
+
+.count-pill.muted {
+  color: var(--muted);
+  opacity: 0.72;
 }
 
 .compact-actions {
@@ -1906,6 +1953,20 @@ tbody tr:hover {
 }
 
 @media (max-width: 840px) {
+  .student-search-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-segmented,
+  .student-search-summary {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .student-search-summary {
+    white-space: normal;
+  }
+
   .student-record-stats,
   .student-record-grid,
   .student-history-list {
