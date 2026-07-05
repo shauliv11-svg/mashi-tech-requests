@@ -171,22 +171,22 @@ const initialRequests: TechRequest[] = [
   }
 ];
 
-const navByRole: Record<Role, { view: View; label: string }[]> = {
+const navByRole: Record<Role, { view: View; label: string; mobileLabel: string }[]> = {
   staff: [
-    { view: "myRequests", label: "הבקשות שלי" },
-    { view: "newRequest", label: "בקשה חדשה" }
+    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
+    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
   ],
   handler: [
-    { view: "manageRequests", label: "ניהול בקשות" },
-    { view: "myRequests", label: "הבקשות שלי" },
-    { view: "newRequest", label: "בקשה חדשה" }
+    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול" },
+    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
+    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
   ],
   admin: [
-    { view: "manageRequests", label: "ניהול בקשות" },
-    { view: "myRequests", label: "הבקשות שלי" },
-    { view: "newRequest", label: "בקשה חדשה" },
-    { view: "users", label: "משתמשים" },
-    { view: "students", label: "תלמידים" }
+    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול" },
+    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
+    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" },
+    { view: "users", label: "משתמשים", mobileLabel: "צוות" },
+    { view: "students", label: "תלמידים", mobileLabel: "תלמידים" }
   ]
 };
 
@@ -913,6 +913,22 @@ export default function Home() {
           </div>
         )}
       </aside>
+
+      {isAuthenticated && (
+        <nav className="mobile-bottom-nav" aria-label="ניווט ראשי במובייל">
+          {navByRole[role].map((item) => (
+            <button
+              key={item.view}
+              className={`mobile-bottom-button ${view === item.view ? "active" : ""}`}
+              type="button"
+              onClick={() => navigate(item.view)}
+              aria-current={view === item.view ? "page" : undefined}
+            >
+              <span>{item.mobileLabel}</span>
+            </button>
+          ))}
+        </nav>
+      )}
 
       <section className="main">
         {toast && <div className="toast">{toast}</div>}

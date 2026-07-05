@@ -163,6 +163,10 @@ button {
   border-color: rgba(16, 42, 164, 0.18);
 }
 
+.mobile-bottom-nav {
+  display: none;
+}
+
 .role-switcher {
   margin-top: 28px;
   padding-top: 20px;
@@ -614,23 +618,8 @@ body {
     font-size: 0.84rem;
   }
 
-  .nav-list {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 4px;
-    scrollbar-width: none;
-  }
-
-  .nav-list::-webkit-scrollbar {
+  .sidebar > .nav-list {
     display: none;
-  }
-
-  .nav-button {
-    flex: 0 0 auto;
-    width: auto;
-    min-height: 40px;
-    white-space: nowrap;
   }
 
   .role-switcher {
@@ -928,7 +917,44 @@ tbody tr:hover {
   }
 
   .main {
-    padding: 16px 12px 24px;
+    padding: 16px 12px calc(96px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    border: 1px solid rgba(188, 219, 239, 0.9);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 18px 42px rgba(37, 124, 172, 0.2);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-bottom-button {
+    min-width: 0;
+    min-height: 48px;
+    border: 1px solid transparent;
+    border-radius: 15px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 900;
+    text-align: center;
+  }
+
+  .mobile-bottom-button.active {
+    border-color: rgba(85, 184, 231, 0.42);
+    background: linear-gradient(180deg, #e8f6ff, #ffffff);
+    color: var(--brand-deep);
+    box-shadow: inset 0 -3px 0 var(--brand);
   }
 
   .topbar {
