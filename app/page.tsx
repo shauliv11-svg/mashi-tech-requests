@@ -1055,6 +1055,7 @@ export default function Home() {
               setSelectedRequestId(id);
               navigate(canManage ? "manageRequests" : "myRequests");
             }}
+            onCloseDetails={() => setSelectedRequestId(null)}
           />
         )}
         {view === "newRequest" && currentUser && (
@@ -1073,6 +1074,7 @@ export default function Home() {
             treatmentUpdates={selectedRequestUpdates}
             currentUser={currentUser}
             onSelect={setSelectedRequestId}
+            onCloseDetails={() => setSelectedRequestId(null)}
             onUpdate={async (updated) => {
               await updateRequest(updated);
             }}
@@ -1325,7 +1327,8 @@ function MyRequests({
   users,
   selectedRequestId,
   onNew,
-  onOpen
+  onOpen,
+  onCloseDetails
 }: {
   currentUser: User;
   requests: TechRequest[];
@@ -1333,6 +1336,7 @@ function MyRequests({
   selectedRequestId: number | null;
   onNew: () => void;
   onOpen: (id: number) => void;
+  onCloseDetails: () => void;
 }) {
   const ownRequests = requests.filter((request) => request.requesterId === currentUser.id);
   const classRequests = requests.filter((request) => {
@@ -1376,6 +1380,7 @@ function MyRequests({
           users={users}
           selectedId={selectedRequestId}
           onOpen={onOpen}
+          onCloseDetails={onCloseDetails}
           renderSelected={(request) => (
             <StaffRequestPreview
               request={request}
@@ -1393,6 +1398,7 @@ function MyRequests({
           users={users}
           selectedId={selectedRequestId}
           onOpen={onOpen}
+          onCloseDetails={onCloseDetails}
           renderSelected={(request) => (
             <StaffRequestPreview
               request={request}
@@ -1415,6 +1421,7 @@ function StaffRequestSection({
   users,
   selectedId,
   onOpen,
+  onCloseDetails,
   renderSelected
 }: {
   title: string;
@@ -1424,6 +1431,7 @@ function StaffRequestSection({
   users: User[];
   selectedId: number | null;
   onOpen: (id: number) => void;
+  onCloseDetails: () => void;
   renderSelected?: (request: TechRequest) => ReactNode;
 }) {
   return (
@@ -1437,7 +1445,7 @@ function StaffRequestSection({
       </div>
       <div className="panel-body">
         {requests.length ? (
-          <RequestCards requests={requests} users={users} selectedId={selectedId} onOpen={onOpen} renderSelected={renderSelected} />
+          <RequestCards requests={requests} users={users} selectedId={selectedId} onOpen={onOpen} onCloseDetails={onCloseDetails} renderSelected={renderSelected} />
         ) : (
           <div className="empty soft-empty">{emptyText}</div>
         )}
@@ -1745,7 +1753,8 @@ function ManageRequests({
   onUpdate,
   onClose,
   onDelete,
-  onAddTreatmentUpdate
+  onAddTreatmentUpdate,
+  onCloseDetails
 }: {
   requests: TechRequest[];
   users: User[];
@@ -1758,6 +1767,7 @@ function ManageRequests({
   onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
   onDelete: (request: TechRequest) => void | Promise<void>;
   onAddTreatmentUpdate: (request: TechRequest, note: string) => void | Promise<void>;
+  onCloseDetails: () => void;
 }) {
   const [status, setStatus] = useState<RequestStatus | "all">("all");
   const [closingRequest, setClosingRequest] = useState<TechRequest | null>(null);
@@ -1807,6 +1817,7 @@ function ManageRequests({
               users={users}
               selectedId={selectedRequest?.id ?? null}
               onOpen={onSelect}
+              onCloseDetails={onCloseDetails}
               renderSelected={(request) => (
                 <RequestDetails
                   request={request}
@@ -1847,12 +1858,14 @@ function RequestCards({
   users,
   selectedId,
   onOpen,
+  onCloseDetails,
   renderSelected
 }: {
   requests: TechRequest[];
   users: User[];
   selectedId: number | null;
   onOpen: (id: number) => void;
+  onCloseDetails?: () => void;
   renderSelected?: (request: TechRequest) => ReactNode;
 }) {
   if (!requests.length) {
@@ -1892,7 +1905,15 @@ function RequestCards({
                 <span className="request-card-action">פתיחת פרטים</span>
               </span>
             </button>
-            {isSelected && renderSelected?.(request)}
+            {isSelected && renderSelected && (
+              <div className="request-open-details">
+                <button className="detail-close-button" type="button" onClick={onCloseDetails} aria-label="סגירת פרטי הבקשה">
+                  <span aria-hidden="true">×</span>
+                  סגירת פרטים
+                </button>
+                {renderSelected(request)}
+              </div>
+            )}
           </div>
         );
       })}
