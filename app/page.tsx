@@ -1215,7 +1215,7 @@ export default function Home() {
             users={users}
             selectedRequest={selectedRequest}
             selectedRequestStudent={selectedRequestStudent}
-            treatmentUpdates={selectedRequestUpdates}
+            treatmentUpdates={treatmentUpdates}
             currentUser={currentUser}
             onSelect={setSelectedRequestId}
             onCloseDetails={() => setSelectedRequestId(null)}
@@ -1572,6 +1572,7 @@ function StaffRequestSection({
   emptyText: string;
   requests: TechRequest[];
   users: User[];
+  treatmentUpdates?: TreatmentUpdate[];
   selectedId: number | null;
   onOpen: (id: number) => void;
   onCloseDetails: () => void;
@@ -2062,6 +2063,7 @@ function ManageRequests({
             <RequestCards
               requests={filtered}
               users={users}
+              treatmentUpdates={treatmentUpdates}
               selectedId={selectedRequest?.id ?? null}
               onOpen={onSelect}
               onCloseDetails={onCloseDetails}
@@ -2075,7 +2077,7 @@ function ManageRequests({
                   onClose={setClosingRequest}
                   onDelete={onDelete}
                   canDelete={currentUser.role === "admin"}
-                  treatmentUpdates={request.id === selectedRequest?.id ? treatmentUpdates : []}
+                  treatmentUpdates={request.id === selectedRequest?.id ? treatmentUpdates.filter((update) => update.requestId === request.id) : []}
                   treatmentAuthors={users}
                   currentUser={currentUser}
                   onAddTreatmentUpdate={onAddTreatmentUpdate}
@@ -2103,6 +2105,7 @@ function ManageRequests({
 function RequestCards({
   requests,
   users,
+  treatmentUpdates,
   selectedId,
   onOpen,
   onCloseDetails,
@@ -2110,6 +2113,7 @@ function RequestCards({
 }: {
   requests: TechRequest[];
   users: User[];
+  treatmentUpdates?: TreatmentUpdate[];
   selectedId: number | null;
   onOpen: (id: number) => void;
   onCloseDetails?: () => void;
@@ -2124,6 +2128,8 @@ function RequestCards({
       {requests.map((request) => {
         const requester = users.find((user) => user.id === request.requesterId);
         const handler = users.find((user) => user.id === request.handlerId);
+        const latestUpdate = [...(treatmentUpdates ?? [])].reverse().find((update) => update.requestId === request.id);
+        const latestUpdateAuthor = latestUpdate ? users.find((user) => user.id === latestUpdate.authorId) : undefined;
         const isSelected = selectedId === request.id;
         return (
           <div key={request.id} className="request-card-block">
@@ -2146,6 +2152,13 @@ function RequestCards({
                 <span>מטפל: {handler?.name ?? "טרם שובץ"}</span>
               </span>
               <span className="request-card-desc">{request.description}</span>
+              {latestUpdate && (
+                <span className="request-card-latest-update">
+                  <strong>עדכון אחרון:</strong>
+                  <span>{latestUpdate.note}</span>
+                  <em>{latestUpdateAuthor?.name ?? "לא ידוע"} · {latestUpdate.createdAt}</em>
+                </span>
+              )}
               {request.attempted && <span className="request-card-attempted">נוסה: {request.attempted}</span>}
               <span className="request-card-footer">
                 <span>נפתחה: {request.createdAt}</span>
