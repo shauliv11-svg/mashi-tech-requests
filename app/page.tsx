@@ -1913,7 +1913,34 @@ function ManageRequests({
   onCloseDetails: () => void;
 }) {
   const [status, setStatus] = useState<RequestStatus | "all">("all");
+  const [requestIdFilter, setRequestIdFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("");
+  const [requestTypeFilter, setRequestTypeFilter] = useState("all");
+  const [requesterFilter, setRequesterFilter] = useState("all");
+  const [handlerFilter, setHandlerFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [closingRequest, setClosingRequest] = useState<TechRequest | null>(null);
+
+  const requesterOptions = useMemo(() => {
+    const requesterIds = new Set(requests.map((request) => request.requesterId));
+    return users.filter((user) => requesterIds.has(user.id));
+  }, [requests, users]);
+
+  const handlerOptions = useMemo(() => {
+    const handlerIds = new Set(requests.map((request) => request.handlerId).filter((id): id is number => Boolean(id)));
+    return users.filter((user) => user.role !== "staff" || handlerIds.has(user.id));
+  }, [requests, users]);
+
+  const activeFilterLabels = [
+    status !== "all" ? `סטטוס: ${statusLabels[status]}` : "",
+    requestIdFilter.trim() ? `מספר: ${requestIdFilter.trim()}` : "",
+    subjectFilter.trim() ? `תלמיד/כיתה: ${subjectFilter.trim()}` : "",
+    requestTypeFilter !== "all" ? `סוג: ${requestTypeFilter}` : "",
+    requesterFilter !== "all" ? `מגישה: ${users.find((user) => user.id === Number(requesterFilter))?.name ?? "נבחרה"}` : "",
+    handlerFilter === "unassigned" ? "מטפל/ת: טרם שובץ" : handlerFilter !== "all" ? `מטפל/ת: ${users.find((user) => user.id === Number(handlerFilter))?.name ?? "נבחרה"}` : ""
+  ].filter(Boolean);
+
+  const hasActiveFilters = activeFilterLabels.length > 0;
 
   function assignHandlerOnProgress(updated: TechRequest) {
     const original = requests.find((request) => request.id === updated.id);
@@ -1923,10 +1950,30 @@ function ManageRequests({
     return updated;
   }
 
+  function clearFilters() {
+    setStatus("all");
+    setRequestIdFilter("");
+    setSubjectFilter("");
+    setRequestTypeFilter("all");
+    setRequesterFilter("all");
+    setHandlerFilter("all");
+  }
+
   const filtered = useMemo(() => {
-    if (status === "all") return requests;
-    return requests.filter((request) => request.status === status);
-  }, [requests, status]);
+    const idSearch = requestIdFilter.trim();
+    const subjectSearch = subjectFilter.trim().toLowerCase();
+
+    return requests.filter((request) => {
+      if (status !== "all" && request.status !== status) return false;
+      if (idSearch && !String(request.id).includes(idSearch.replace(/^#/, ""))) return false;
+      if (subjectSearch && ![request.subjectName, request.className].join(" ").toLowerCase().includes(subjectSearch)) return false;
+      if (requestTypeFilter !== "all" && request.requestType !== requestTypeFilter) return false;
+      if (requesterFilter !== "all" && request.requesterId !== Number(requesterFilter)) return false;
+      if (handlerFilter === "unassigned" && request.handlerId) return false;
+      if (handlerFilter !== "all" && handlerFilter !== "unassigned" && request.handlerId !== Number(handlerFilter)) return false;
+      return true;
+    });
+  }, [handlerFilter, requestIdFilter, requestTypeFilter, requesterFilter, requests, status, subjectFilter]);
 
   const stats = {
     new: requests.filter((request) => request.status === "new").length,
@@ -1947,13 +1994,70 @@ function ManageRequests({
 
       <div className="request-detail">
         <section className="panel">
-          <div className="panel-header">
-            <h3>{status === "all" ? "כל הבקשות" : `בקשות בסטטוס ${statusLabels[status]}`}</h3>
+          <div className="panel-header compact-request-header">
+            <div>
+              <h3>{status === "all" ? "כל הבקשות" : `בקשות בסטטוס ${statusLabels[status]}`}</h3>
+              {hasActiveFilters && (
+                <div className="active-filter-chips" aria-label="סינונים פעילים">
+                  {activeFilterLabels.slice(0, 3).map((label) => <span key={label}>{label}</span>)}
+                  {activeFilterLabels.length > 3 && <span>+{activeFilterLabels.length - 3}</span>}
+                </div>
+              )}
+            </div>
             <div className="panel-header-actions">
               <span>{filtered.length} מתוך {requests.length} בקשות</span>
-              {status !== "all" && <button className="btn" type="button" onClick={() => setStatus("all")}>כל הבקשות</button>}
+              <button className="btn" type="button" onClick={() => setFiltersOpen((open) => !open)}>
+                {filtersOpen ? "סגירת סינון" : hasActiveFilters ? `סינון (${activeFilterLabels.length})` : "סינון"}
+              </button>
+              {hasActiveFilters && <button className="btn" type="button" onClick={clearFilters}>ניקוי</button>}
             </div>
           </div>
+          {filtersOpen && (
+            <div className="panel-body compact-panel-body filter-panel-body">
+              <div className="request-filter-bar" aria-label="סינון בקשות">
+                <div className="field compact-field tiny-field">
+                  <label htmlFor="requestIdFilter">מספר</label>
+                  <input id="requestIdFilter" value={requestIdFilter} onChange={(event) => setRequestIdFilter(event.target.value)} placeholder="#103" inputMode="numeric" />
+                </div>
+                <div className="field compact-field subject-field">
+                  <label htmlFor="requestSubjectFilter">תלמיד/כיתה</label>
+                  <input id="requestSubjectFilter" value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)} placeholder="שם או כיתה" />
+                </div>
+                <div className="field compact-field">
+                  <label htmlFor="requestStatusFilter">סטטוס</label>
+                  <select id="requestStatusFilter" value={status} onChange={(event) => setStatus(event.target.value as RequestStatus | "all")}>
+                    <option value="all">כל הסטטוסים</option>
+                    <option value="new">חדשה</option>
+                    <option value="progress">בטיפול</option>
+                    <option value="waiting">נשלח לתיקון</option>
+                    <option value="closed">נסגרה</option>
+                  </select>
+                </div>
+                <div className="field compact-field">
+                  <label htmlFor="requestTypeFilter">סוג בקשה</label>
+                  <select id="requestTypeFilter" value={requestTypeFilter} onChange={(event) => setRequestTypeFilter(event.target.value)}>
+                    <option value="all">כל הסוגים</option>
+                    {requestTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </div>
+                <div className="field compact-field">
+                  <label htmlFor="requesterFilter">מגישה</label>
+                  <select id="requesterFilter" value={requesterFilter} onChange={(event) => setRequesterFilter(event.target.value)}>
+                    <option value="all">כל המגישות</option>
+                    {requesterOptions.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                  </select>
+                </div>
+                <div className="field compact-field">
+                  <label htmlFor="handlerFilter">מטפל/ת</label>
+                  <select id="handlerFilter" value={handlerFilter} onChange={(event) => setHandlerFilter(event.target.value)}>
+                    <option value="all">כל המטפלות</option>
+                    <option value="unassigned">טרם שובץ</option>
+                    {handlerOptions.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="panel-body">
             <RequestCards
               requests={filtered}

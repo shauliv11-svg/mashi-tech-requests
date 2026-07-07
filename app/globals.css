@@ -1257,6 +1257,70 @@ tbody tr:hover {
   background: #fbfff2;
 }
 
+
+.compact-request-header {
+  align-items: flex-start;
+}
+
+.compact-request-header > div:first-child {
+  display: grid;
+  gap: 8px;
+}
+
+.active-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.active-filter-chips span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 9px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.filter-panel-body {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #fbfdff, #ffffff);
+}
+
+.request-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.6fr) minmax(180px, 1.35fr) repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.compact-field {
+  gap: 5px;
+}
+
+.compact-field label {
+  font-size: 0.82rem;
+}
+
+.compact-field input,
+.compact-field select {
+  min-height: 40px;
+  padding: 9px 11px;
+}
+
+.tiny-field {
+  min-width: 82px;
+}
+
+.subject-field {
+  min-width: 180px;
+}
+
 .request-card-list {
   display: grid;
   gap: 12px;
@@ -2368,7 +2432,8 @@ tbody tr:hover {
 
 @media (max-width: 840px) {
   .student-search-tools,
-  .users-toolbar {
+  .users-toolbar,
+  .request-filter-bar {
     grid-template-columns: 1fr;
   }
 
