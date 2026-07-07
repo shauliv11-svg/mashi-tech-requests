@@ -4,7 +4,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "staff" | "handler" | "admin";
-type View = "login" | "myRequests" | "newRequest" | "manageRequests" | "users" | "students";
+type View = "login" | "myRequests" | "newRequest" | "manageRequests" | "updates" | "users" | "students";
 type SubjectType = "student" | "class";
 type RequestStatus = "new" | "progress" | "waiting" | "closed";
 type DeviceType = "מחשב" | "אייפד" | "מחשב מיקוד מבט" | "אייפד פרו";
@@ -47,6 +47,7 @@ type TechRequest = {
   attempted: string;
   status: RequestStatus;
   createdAt: string;
+  createdAtIso?: string;
   internalNote?: string;
   closingMessage?: string;
   handlerId?: number;
@@ -58,6 +59,7 @@ type TreatmentUpdate = {
   authorId: number;
   note: string;
   createdAt: string;
+  createdAtIso?: string;
 };
 
 const roleLabels: Record<Role, string> = {
@@ -220,11 +222,13 @@ const navByRole: Record<Role, { view: View; label: string; mobileLabel: string }
     { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" }
   ],
   handler: [
+    { view: "updates", label: "מה חדש", mobileLabel: "מה חדש" },
     { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול בקשות" },
     { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
     { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" }
   ],
   admin: [
+    { view: "updates", label: "מה חדש", mobileLabel: "מה חדש" },
     { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול בקשות" },
     { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
     { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" },
@@ -249,6 +253,26 @@ function displayDateTime(value?: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" }).format(parsed);
+}
+
+function parseDateValue(value?: string) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  const match = value.match(/(\d{1,2})[./](\d{1,2})[./](\d{2,4})(?:,?\s+(\d{1,2}):(\d{2}))?/);
+  if (!match) return null;
+
+  const [, day, month, year, hour = "0", minute = "0"] = match;
+  const fullYear = year.length === 2 ? Number(`20${year}`) : Number(year);
+  const fallback = new Date(fullYear, Number(month) - 1, Number(day), Number(hour), Number(minute));
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function isWithinLastHours(value: string | undefined, hours: number) {
+  const parsed = parseDateValue(value);
+  if (!parsed) return false;
+  return Date.now() - parsed.getTime() <= hours * 60 * 60 * 1000;
 }
 
 function parseClassList(value: string) {
@@ -403,6 +427,7 @@ function mapRequest(row: any): TechRequest {
     attempted: row.attempted ?? "",
     status: row.status,
     createdAt: displayDate(row.created_at),
+    createdAtIso: row.created_at ?? undefined,
     internalNote: row.internal_note ?? undefined,
     closingMessage: row.closing_message ?? undefined,
     handlerId: row.handler_id ? Number(row.handler_id) : undefined
@@ -415,7 +440,8 @@ function mapTreatmentUpdate(row: any): TreatmentUpdate {
     requestId: Number(row.request_id),
     authorId: Number(row.author_id),
     note: row.note,
-    createdAt: displayDateTime(row.created_at)
+    createdAt: displayDateTime(row.created_at),
+    createdAtIso: row.created_at ?? undefined
   };
 }
 
@@ -774,7 +800,8 @@ export default function Home() {
       requestId: request.id,
       authorId: currentUser.id,
       note: trimmed,
-      createdAt: displayDateTime(new Date().toISOString())
+      createdAt: displayDateTime(new Date().toISOString()),
+      createdAtIso: new Date().toISOString()
     };
     const updatedRequest = { ...request, internalNote: trimmed };
 
@@ -1209,6 +1236,17 @@ export default function Home() {
             onCreate={createRequest}
           />
         )}
+        {view === "updates" && canManage && currentUser && (
+          <RecentUpdates
+            requests={requests}
+            users={users}
+            treatmentUpdates={treatmentUpdates}
+            onOpen={(id) => {
+              setSelectedRequestId(id);
+              navigate("manageRequests");
+            }}
+          />
+        )}
         {view === "manageRequests" && canManage && currentUser && (
           <ManageRequests
             requests={requests}
@@ -1251,6 +1289,18 @@ export default function Home() {
 }
 
 function MobileNavIcon({ view }: { view: View }) {
+  if (view === "updates") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 6h14" />
+        <path d="M5 12h9" />
+        <path d="M5 18h6" />
+        <path d="M17 11v7" />
+        <path d="M14 14l3-3 3 3" />
+      </svg>
+    );
+  }
+
   if (view === "manageRequests") {
     return (
       <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1458,6 +1508,95 @@ function LoginScreen({
               </button>
             </div>
           </form>
+        </div>
+      </section>
+    </>
+  );
+}
+
+
+function RecentUpdates({
+  requests,
+  users,
+  treatmentUpdates,
+  onOpen
+}: {
+  requests: TechRequest[];
+  users: User[];
+  treatmentUpdates: TreatmentUpdate[];
+  onOpen: (id: number) => void;
+}) {
+  const recentRequests = useMemo(
+    () => requests.filter((request) => isWithinLastHours(request.createdAtIso ?? request.createdAt, 24)),
+    [requests]
+  );
+  const recentTreatmentUpdates = useMemo(
+    () => treatmentUpdates.filter((update) => isWithinLastHours(update.createdAtIso ?? update.createdAt, 24)),
+    [treatmentUpdates]
+  );
+  const touchedRequestIds = new Set([...recentRequests.map((request) => request.id), ...recentTreatmentUpdates.map((update) => update.requestId)]);
+  const touchedRequests = requests.filter((request) => touchedRequestIds.has(request.id));
+  const openTouched = touchedRequests.filter((request) => request.status !== "closed").length;
+
+  return (
+    <>
+      <Topbar title="מה חדש" subtitle="סיכום מהיר של בקשות ועדכוני טיפול מ-24 השעות האחרונות." />
+      <section className="recent-summary-grid" aria-label="סיכום 24 שעות">
+        <div className="recent-summary-card tone-new">
+          <strong>{recentRequests.length}</strong>
+          <span>בקשות חדשות</span>
+        </div>
+        <div className="recent-summary-card tone-progress">
+          <strong>{recentTreatmentUpdates.length}</strong>
+          <span>עדכוני טיפול</span>
+        </div>
+        <div className="recent-summary-card tone-waiting">
+          <strong>{touchedRequests.length}</strong>
+          <span>בקשות שנגעו בהן</span>
+        </div>
+        <div className="recent-summary-card tone-closed">
+          <strong>{openTouched}</strong>
+          <span>עדיין פתוחות</span>
+        </div>
+      </section>
+
+      <section className="panel recent-panel">
+        <div className="panel-header">
+          <h3>פעילות אחרונה</h3>
+          <span className="panel-count">24 שעות</span>
+        </div>
+        <div className="panel-body recent-activity-list">
+          {!recentRequests.length && !recentTreatmentUpdates.length ? (
+            <div className="empty compact">לא נרשמה פעילות חדשה ב-24 השעות האחרונות.</div>
+          ) : (
+            <>
+              {recentRequests.map((request) => {
+                const requester = users.find((user) => user.id === request.requesterId);
+                return (
+                  <button className="recent-activity-card" type="button" key={`request-${request.id}`} onClick={() => onOpen(request.id)}>
+                    <span className="section-kicker">בקשה חדשה</span>
+                    <strong>#{request.id} · {request.subjectName}</strong>
+                    <span>{request.className} · {request.requestType}</span>
+                    <p>{request.description}</p>
+                    <em>{requester?.name ?? "לא ידוע"} · {request.createdAt}</em>
+                  </button>
+                );
+              })}
+              {recentTreatmentUpdates.map((update) => {
+                const request = requests.find((item) => item.id === update.requestId);
+                const author = users.find((user) => user.id === update.authorId);
+                return (
+                  <button className="recent-activity-card treatment" type="button" key={`update-${update.id}`} onClick={() => onOpen(update.requestId)}>
+                    <span className="section-kicker">עדכון טיפול</span>
+                    <strong>#{update.requestId} · {request?.subjectName ?? "בקשה"}</strong>
+                    <span>{request?.className ?? ""}</span>
+                    <p>{update.note}</p>
+                    <em>{author?.name ?? "לא ידוע"} · {update.createdAt}</em>
+                  </button>
+                );
+              })}
+            </>
+          )}
         </div>
       </section>
     </>
@@ -1725,7 +1864,8 @@ function NewRequest({
       description,
       attempted,
       status: "new",
-      createdAt: today()
+      createdAt: today(),
+      createdAtIso: new Date().toISOString()
     };
 
     if (!request.subjectName || !description.trim()) return;
