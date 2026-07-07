@@ -1101,6 +1101,39 @@ export default function Home() {
     showToast("פרטי התלמיד/ה נשמרו בדאטה בייס.");
   }
 
+  async function deleteStudent(student: Student) {
+    const hasRequests = requests.some((request) => request.studentId === student.id);
+
+    if (!isSupabaseConfigured || !supabase) {
+      setStudents((items) => hasRequests
+        ? items.map((item) => item.id === student.id ? { ...item, active: false } : item)
+        : items.filter((item) => item.id !== student.id)
+      );
+      showToast(hasRequests ? "התלמיד/ה הושבתו כדי לשמור היסטוריית בקשות." : "התלמיד/ה נמחקו מהרשימה.");
+      return true;
+    }
+
+    if (hasRequests) {
+      const { data, error } = await supabase.from("students").update({ active: false }).eq("id", student.id).select("*").single();
+      if (error) {
+        showToast("השבתת התלמיד/ה נכשלה.");
+        return false;
+      }
+      setStudents((items) => items.map((item) => (item.id === student.id ? mapStudent(data) : item)));
+      showToast("התלמיד/ה הושבתו כדי לשמור היסטוריית בקשות.");
+      return true;
+    }
+
+    const { error } = await supabase.from("students").delete().eq("id", student.id);
+    if (error) {
+      showToast("מחיקת התלמיד/ה נכשלה.");
+      return false;
+    }
+    setStudents((items) => items.filter((item) => item.id !== student.id));
+    showToast("התלמיד/ה נמחקו מהדאטה בייס.");
+    return true;
+  }
+
   async function importStudents(newStudents: Student[]) {
     if (!isSupabaseConfigured || !supabase) {
       setStudents((items) => [...items, ...newStudents]);
@@ -1280,6 +1313,7 @@ export default function Home() {
             requests={requests}
             onAdd={createStudent}
             onUpdate={updateStudent}
+            onDelete={deleteStudent}
             onImport={importStudents}
           />
         )}
@@ -2893,12 +2927,14 @@ function StudentsAdmin({
   requests,
   onAdd,
   onUpdate,
+  onDelete,
   onImport
 }: {
   students: Student[];
   requests: TechRequest[];
   onAdd: (student: Student) => void | Promise<void>;
   onUpdate: (student: Student) => void | Promise<void>;
+  onDelete: (student: Student) => boolean | Promise<boolean>;
   onImport: (students: Student[]) => void | Promise<void>;
 }) {
   const [editingStudentId, setEditingStudentId] = useState<number | "new">("new");
@@ -3076,6 +3112,21 @@ function StudentsAdmin({
     const reader = new FileReader();
     reader.onload = () => importStudentsFromText(String(reader.result ?? ""));
     reader.readAsText(file, "utf-8");
+  }
+
+  async function confirmDeleteStudent(student: Student) {
+    const requestCount = studentRequestCounts.get(student.id) ?? 0;
+    const message = requestCount
+      ? `להשבית את ${student.fullName}? יש לתלמיד/ה ${requestCount} פניות, ולכן נשמור את ההיסטוריה ולא נמחק לגמרי.`
+      : `למחוק את ${student.fullName} מהרשימה?`;
+
+    if (!window.confirm(message)) return;
+    const didDelete = await onDelete(student);
+    if (!didDelete) return;
+    setHistoryStudentId(null);
+    if (editingStudentId === student.id) {
+      closeStudentForm();
+    }
   }
 
   return (
@@ -3259,6 +3310,7 @@ function StudentsAdmin({
                 setHistoryStudentId(null);
                 loadStudent(historyStudent);
               }}
+              onDelete={() => confirmDeleteStudent(historyStudent)}
             />
           </div>
         </div>
@@ -3271,12 +3323,14 @@ function StudentRecordPanel({
   student,
   requests,
   onClose,
-  onEdit
+  onEdit,
+  onDelete
 }: {
   student: Student;
   requests: TechRequest[];
   onClose: () => void;
   onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const stats = {
     total: requests.length,
@@ -3383,6 +3437,16 @@ function StudentRecordPanel({
             <div className="empty">אין פניות מתועדות לתלמיד/ה הזה כרגע.</div>
           )}
         </section>
+
+        {onDelete && (
+          <section className="student-record-danger-zone">
+            <div>
+              <strong>{requests.length ? "השבתת תלמיד/ה" : "מחיקת תלמיד/ה"}</strong>
+              <p>{requests.length ? "יש לתלמיד/ה פניות היסטוריות, לכן הפעולה תשבית את הרשומה ותשמור את התיעוד." : "אין לתלמיד/ה פניות היסטוריות, לכן אפשר למחוק את הרשומה מהרשימה."}</p>
+            </div>
+            <button className="btn danger subtle" type="button" onClick={onDelete}>{requests.length ? "השבתה" : "מחיקה"}</button>
+          </section>
+        )}
       </div>
     </section>
   );

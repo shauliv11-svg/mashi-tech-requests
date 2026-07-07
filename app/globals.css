@@ -240,6 +240,11 @@ button {
   color: var(--danger);
 }
 
+.btn.danger.subtle {
+  background: #fffafa;
+  box-shadow: none;
+}
+
 .btn:hover {
   transform: translateY(-1px);
 }
@@ -1213,11 +1218,22 @@ tbody tr:hover {
 .staff-request-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 18px;
+}
+
+.staff-request-grid .panel + .panel {
+  margin-top: 0;
 }
 
 .staff-request-section .panel-body {
   padding: 16px;
+}
+
+.staff-request-section .soft-empty {
+  min-height: 124px;
+  display: grid;
+  place-items: center;
 }
 
 .staff-section-header {
@@ -2523,6 +2539,35 @@ tbody tr:hover {
   gap: 16px;
 }
 
+.student-record-danger-zone {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(184, 48, 48, 0.16);
+  border-radius: 14px;
+  background: #fffdfd;
+}
+
+.student-record-danger-zone strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.student-record-danger-zone p {
+  max-width: 680px;
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.student-record-danger-zone .btn {
+  flex: 0 0 auto;
+}
+
 .student-record-stats {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2700,6 +2745,15 @@ tbody tr:hover {
   .record-fields div {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+
+  .student-record-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .student-record-danger-zone .btn {
+    width: 100%;
   }
 
   .compact-actions .btn {
