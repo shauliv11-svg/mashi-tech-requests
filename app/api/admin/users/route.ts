@@ -143,6 +143,74 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ user: mapAppUser(appUser) });
 }
 
+
+export async function PATCH(request: NextRequest) {
+  const adminClient = getAdminClient();
+
+  if (!adminClient) {
+    return NextResponse.json({ error: "missing_service_role_key" }, { status: 500 });
+  }
+
+  const adminCheck = await requireAdmin(request, adminClient);
+  if ("error" in adminCheck) {
+    return NextResponse.json({ error: adminCheck.error }, { status: adminCheck.status });
+  }
+
+  const body = await request.json().catch(() => null);
+  const id = Number(body?.id);
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const email = typeof body?.email === "string" ? normalizeEmail(body.email) : "";
+  const previousEmail = typeof body?.previousEmail === "string" ? normalizeEmail(body.previousEmail) : email;
+  const role = roles.includes(body?.role) ? body.role as Role : null;
+  const active = typeof body?.active === "boolean" ? body.active : true;
+  const classNames = Array.isArray(body?.classNames) ? body.classNames.filter((item: unknown) => typeof item === "string" && item.trim()).map((item: string) => item.trim()) : [];
+
+  if (!Number.isFinite(id) || !name || !email || !role) {
+    return NextResponse.json({ error: "invalid_user_payload" }, { status: 400 });
+  }
+
+  if (previousEmail === adminCheck.email && !active) {
+    return NextResponse.json({ error: "cannot_disable_self" }, { status: 400 });
+  }
+
+  const appUserPayload = {
+    name,
+    email,
+    role,
+    class_names: role === "staff" ? classNames : [],
+    active
+  };
+
+  const { data: appUser, error: appUserError } = await adminClient
+    .from("app_users")
+    .update(appUserPayload)
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (appUserError) {
+    return NextResponse.json({ error: "app_user_save_failed" }, { status: 500 });
+  }
+
+  try {
+    const existingAuthUser = await findAuthUserByEmail(adminClient, previousEmail);
+
+    if (existingAuthUser) {
+      const { error } = await adminClient.auth.admin.updateUserById(existingAuthUser.id, {
+        email,
+        email_confirm: true,
+        user_metadata: { name, role }
+      });
+
+      if (error) throw error;
+    }
+  } catch (error) {
+    return NextResponse.json({ error: "auth_user_save_failed" }, { status: 500 });
+  }
+
+  return NextResponse.json({ user: mapAppUser(appUser) });
+}
+
 export async function DELETE(request: NextRequest) {
   const adminClient = getAdminClient();
 
@@ -167,27 +235,26 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "cannot_delete_self" }, { status: 400 });
   }
 
-  const { data: linkedRequests, error: linkedError } = await adminClient
-    .from("tech_requests")
-    .select("id")
-    .eq("requester_id", id)
-    .limit(1);
+  const [{ data: linkedRequests, error: linkedRequestsError }, { data: linkedUpdates, error: linkedUpdatesError }] = await Promise.all([
+    adminClient
+      .from("tech_requests")
+      .select("id")
+      .or(`requester_id.eq.${id},handler_id.eq.${id}`)
+      .limit(1),
+    adminClient
+      .from("request_treatment_updates")
+      .select("id")
+      .eq("author_id", id)
+      .limit(1)
+  ]);
 
-  if (linkedError) {
-    return NextResponse.json({ error: "linked_request_check_failed" }, { status: 500 });
+  if (linkedRequestsError || linkedUpdatesError) {
+    return NextResponse.json({ error: "linked_history_check_failed" }, { status: 500 });
   }
 
-  try {
-    const existingAuthUser = await findAuthUserByEmail(adminClient, email);
-    if (existingAuthUser) {
-      const { error } = await adminClient.auth.admin.deleteUser(existingAuthUser.id);
-      if (error) throw error;
-    }
-  } catch (error) {
-    return NextResponse.json({ error: "auth_user_delete_failed" }, { status: 500 });
-  }
+  const hasHistory = Boolean(linkedRequests?.length || linkedUpdates?.length);
 
-  if (linkedRequests?.length) {
+  if (hasHistory) {
     const { data: appUser, error } = await adminClient
       .from("app_users")
       .update({ active: false })
@@ -199,7 +266,27 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "app_user_disable_failed" }, { status: 500 });
     }
 
+    try {
+      const existingAuthUser = await findAuthUserByEmail(adminClient, email);
+      if (existingAuthUser) {
+        const { error: authError } = await adminClient.auth.admin.deleteUser(existingAuthUser.id);
+        if (authError) throw authError;
+      }
+    } catch (error) {
+      return NextResponse.json({ mode: "disabled", user: mapAppUser(appUser), authWarning: "auth_user_delete_failed" });
+    }
+
     return NextResponse.json({ mode: "disabled", user: mapAppUser(appUser) });
+  }
+
+  try {
+    const existingAuthUser = await findAuthUserByEmail(adminClient, email);
+    if (existingAuthUser) {
+      const { error } = await adminClient.auth.admin.deleteUser(existingAuthUser.id);
+      if (error) throw error;
+    }
+  } catch (error) {
+    return NextResponse.json({ error: "auth_user_delete_failed" }, { status: 500 });
   }
 
   const { error } = await adminClient.from("app_users").delete().eq("id", id);

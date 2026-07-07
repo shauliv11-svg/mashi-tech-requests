@@ -419,16 +419,6 @@ function mapTreatmentUpdate(row: any): TreatmentUpdate {
   };
 }
 
-function userPayload(user: User) {
-  return {
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    class_names: user.classNames ?? [],
-    active: user.active
-  };
-}
-
 function studentPayload(student: Student, includeResponsibilityContacts = true) {
   const payload: Record<string, unknown> = {
     full_name: student.fullName,
@@ -947,14 +937,50 @@ export default function Home() {
     const updated = { ...current, ...patch };
     if (!isSupabaseConfigured || !supabase) {
       setUsers((items) => items.map((item) => (item.id === id ? updated : item)));
+      showToast("פרטי המשתמשת נשמרו.");
       return;
     }
-    const { data, error } = await supabase.from("app_users").update(userPayload(updated)).eq("id", id).select("*").single();
-    if (error) {
-      showToast("שמירת המשתמשת בדאטה בייס נכשלה.");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      showToast("צריך להתחבר מחדש כדי לערוך משתמשות.");
       return;
     }
-    setUsers((items) => items.map((item) => (item.id === id ? mapUser(data) : item)));
+
+    const response = await fetch("/api/admin/users", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        id: updated.id,
+        previousEmail: current.email,
+        name: updated.name,
+        email: updated.email,
+        role: updated.role,
+        classNames: updated.classNames ?? [],
+        active: updated.active
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.user) {
+      const message = result?.error === "cannot_disable_self"
+        ? "אי אפשר להשבית את המשתמשת המחוברת כרגע."
+        : result?.error === "missing_service_role_key"
+          ? "צריך להגדיר SUPABASE_SERVICE_ROLE_KEY ב-Vercel כדי לערוך משתמשות ב-Auth."
+          : "שמירת המשתמשת נכשלה.";
+      showToast(message);
+      return;
+    }
+
+    const saved = mapUser(result.user);
+    setUsers((items) => items.map((item) => (item.id === id ? saved : item)));
+    showToast("פרטי המשתמשת נשמרו.");
   }
 
   async function deleteUser(user: User) {
@@ -964,12 +990,12 @@ export default function Home() {
     }
 
     if (!isSupabaseConfigured || !supabase) {
-      const hasRequests = requests.some((request) => request.requesterId === user.id);
-      setUsers((items) => hasRequests
+      const hasHistory = requests.some((request) => request.requesterId === user.id || request.handlerId === user.id) || treatmentUpdates.some((update) => update.authorId === user.id);
+      setUsers((items) => hasHistory
         ? items.map((item) => item.id === user.id ? { ...item, active: false } : item)
         : items.filter((item) => item.id !== user.id)
       );
-      showToast(hasRequests ? "המשתמשת הושבתה כדי לשמור היסטוריית בקשות." : "המשתמשת נמחקה.");
+      showToast(hasHistory ? "המשתמשת הושבתה כדי לשמור היסטוריית טיפול ובקשות." : "המשתמשת נמחקה.");
       return;
     }
 
@@ -997,7 +1023,9 @@ export default function Home() {
         ? "אי אפשר למחוק את המשתמשת המחוברת כרגע."
         : result?.error === "missing_service_role_key"
           ? "צריך להגדיר SUPABASE_SERVICE_ROLE_KEY ב-Vercel כדי למחוק משתמשות מ-Auth."
-          : "מחיקת המשתמשת נכשלה.";
+          : result?.error === "linked_history_check_failed"
+            ? "בדיקת היסטוריית המשתמשת נכשלה. נסו שוב."
+            : "מחיקת המשתמשת נכשלה.";
       showToast(message);
       return;
     }
@@ -1005,7 +1033,10 @@ export default function Home() {
     if (result?.mode === "disabled" && result.user) {
       const saved = mapUser(result.user);
       setUsers((items) => items.map((item) => item.id === saved.id ? saved : item));
-      showToast("המשתמשת הושבתה ונחסמה מכניסה, כדי לשמור היסטוריית בקשות.");
+      showToast(result?.authWarning === "auth_user_delete_failed"
+        ? "המשתמשת הושבתה במערכת, אבל מחיקת חשבון ההתחברות נכשלה."
+        : "המשתמשת הושבתה ונחסמה מכניסה, כדי לשמור היסטוריית טיפול ובקשות."
+      );
       return;
     }
 
@@ -1201,8 +1232,7 @@ export default function Home() {
             users={users}
             currentUserId={currentUser.id}
             onInvite={createUser}
-            onRoleChange={(id, nextRole) => patchUser(id, { role: nextRole })}
-            onClassChange={(id, classNamesText) => patchUser(id, { classNames: parseClassList(classNamesText) })}
+            onUpdate={(user) => patchUser(user.id, user)}
             onDelete={deleteUser}
           />
         )}
@@ -2285,15 +2315,13 @@ function UsersAdmin({
   users,
   currentUserId,
   onInvite,
-  onRoleChange,
-  onClassChange,
+  onUpdate,
   onDelete
 }: {
   users: User[];
   currentUserId: number;
   onInvite: (user: User, initialPassword: string) => void | Promise<void>;
-  onRoleChange: (id: number, role: Role) => void | Promise<void>;
-  onClassChange: (id: number, classNamesText: string) => void | Promise<void>;
+  onUpdate: (user: User) => void | Promise<void>;
   onDelete: (user: User) => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
@@ -2301,14 +2329,54 @@ function UsersAdmin({
   const [role, setRole] = useState<Role>("staff");
   const [classNamesText, setClassNamesText] = useState("");
   const [initialPassword, setInitialPassword] = useState("");
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState<Role>("staff");
+  const [editClassNamesText, setEditClassNamesText] = useState("");
+  const [editActive, setEditActive] = useState(true);
+  const [userSearch, setUserSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<Role | "all">("all");
+  const [activityFilter, setActivityFilter] = useState<"all" | "active" | "inactive">("all");
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  const editingUser = editingUserId ? users.find((user) => user.id === editingUserId) : null;
+
+  const userCounts = useMemo(() => {
+    return users.reduce(
+      (counts, user) => {
+        counts.total += 1;
+        counts[user.role] += 1;
+        if (user.active) counts.active += 1;
+        return counts;
+      },
+      { total: 0, active: 0, staff: 0, handler: 0, admin: 0 }
+    );
+  }, [users]);
+
+  const filteredUsers = useMemo(() => {
+    const normalizedSearch = userSearch.trim().toLowerCase();
+
+    return users.filter((user) => {
+      if (roleFilter !== "all" && user.role !== roleFilter) return false;
+      if (activityFilter === "active" && !user.active) return false;
+      if (activityFilter === "inactive" && user.active) return false;
+      if (!normalizedSearch) return true;
+
+      return [user.name, user.email, roleLabels[user.role], formatClassList(user.classNames)]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    });
+  }, [activityFilter, roleFilter, userSearch, users]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim() || !email.trim() || initialPassword.length < 6) return;
-    onInvite({
+    await onInvite({
       id: Date.now(),
-      name,
-      email,
+      name: name.trim(),
+      email: email.trim(),
       role,
       classNames: role === "staff" ? parseClassList(classNamesText) : undefined,
       active: true
@@ -2318,6 +2386,41 @@ function UsersAdmin({
     setRole("staff");
     setClassNamesText("");
     setInitialPassword("");
+    setInviteModalOpen(false);
+  }
+
+  function openEditModal(user: User) {
+    setEditingUserId(user.id);
+    setEditName(user.name);
+    setEditEmail(user.email);
+    setEditRole(user.role);
+    setEditClassNamesText(formatClassList(user.classNames));
+    setEditActive(user.active);
+  }
+
+  function closeEditModal() {
+    setEditingUserId(null);
+    setEditName("");
+    setEditEmail("");
+    setEditRole("staff");
+    setEditClassNamesText("");
+    setEditActive(true);
+  }
+
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingUser || !editName.trim() || !editEmail.trim()) return;
+    if (editingUser.id === currentUserId && !editActive) return;
+
+    await onUpdate({
+      ...editingUser,
+      name: editName.trim(),
+      email: editEmail.trim(),
+      role: editRole,
+      classNames: editRole === "staff" ? parseClassList(editClassNamesText) : undefined,
+      active: editActive
+    });
+    closeEditModal();
   }
 
   function confirmDelete(user: User) {
@@ -2330,57 +2433,57 @@ function UsersAdmin({
 
   return (
     <>
-      <Topbar title="ניהול משתמשים" subtitle="לאדמין בלבד: הוספת צוות, הגדרת סיסמה ראשונית ושינוי תפקידים." />
-      <section className="panel">
-        <div className="panel-header">
-          <h3>הוספת משתמשת</h3>
+      <Topbar
+        title="ניהול משתמשים"
+        subtitle="לאדמין בלבד: הוספת צוות, הגדרת סיסמה ראשונית ושינוי תפקידים."
+        action={<button className="btn primary" type="button" onClick={() => setInviteModalOpen(true)}>הוספת משתמשת</button>}
+      />
+
+      <section className="users-summary-grid" aria-label="תקציר משתמשים">
+        <div className="user-summary-card">
+          <strong>{userCounts.total}</strong>
+          <span>משתמשות במערכת</span>
         </div>
-        <div className="panel-body">
-          <form className="form-grid" onSubmit={submit}>
-            <div className="field">
-              <label htmlFor="inviteName">שם</label>
-              <input id="inviteName" value={name} onChange={(event) => setName(event.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="inviteEmail">מייל</label>
-              <input id="inviteEmail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="inviteRole">תפקיד</label>
-              <select id="inviteRole" value={role} onChange={(event) => setRole(event.target.value as Role)}>
-                <option value="staff">צוות</option>
-                <option value="handler">מטפל/ת בבקשות</option>
-                <option value="admin">אדמין</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="inviteClass">כיתות משויכות</label>
-              <input id="inviteClass" value={classNamesText} onChange={(event) => setClassNamesText(event.target.value)} placeholder="לדוגמה: ג׳ תקשורת, ד׳1" disabled={role !== "staff"} />
-            </div>
-            <div className="field">
-              <label htmlFor="invitePassword">סיסמה ראשונית</label>
-              <input id="invitePassword" type="password" value={initialPassword} onChange={(event) => setInitialPassword(event.target.value)} minLength={6} placeholder="לפחות 6 תווים" autoComplete="new-password" />
-              <span className="field-help">האדמין מוסר את הסיסמה הראשונית לאשת הצוות. היא לא נשמרת בטבלה.</span>
-            </div>
-            <div className="field full">
-              <button className="btn primary" type="submit">
-                יצירת משתמשת
-              </button>
-            </div>
-          </form>
+        <div className="user-summary-card">
+          <strong>{userCounts.active}</strong>
+          <span>פעילות</span>
+        </div>
+        <div className="user-summary-card">
+          <strong>{userCounts.staff}</strong>
+          <span>צוות</span>
+        </div>
+        <div className="user-summary-card">
+          <strong>{userCounts.handler + userCounts.admin}</strong>
+          <span>ניהול וטיפול</span>
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel users-admin-panel">
         <div className="panel-header">
           <h3>משתמשים קיימים</h3>
+          <span className="panel-count">{filteredUsers.length} מתוך {users.length}</span>
         </div>
-        <div className="table-wrap">
-          <table>
+        <div className="panel-body">
+          <div className="users-toolbar">
+            <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="חיפוש לפי שם, מייל, תפקיד או כיתה" />
+            <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as Role | "all")} aria-label="סינון לפי תפקיד">
+              <option value="all">כל התפקידים</option>
+              <option value="staff">צוות</option>
+              <option value="handler">מטפל/ת בבקשות</option>
+              <option value="admin">אדמין</option>
+            </select>
+            <div className="segmented compact-segmented users-activity-filter" aria-label="סינון לפי סטטוס">
+              <button type="button" className={`segment ${activityFilter === "all" ? "active" : ""}`} onClick={() => setActivityFilter("all")}>הכל</button>
+              <button type="button" className={`segment ${activityFilter === "active" ? "active" : ""}`} onClick={() => setActivityFilter("active")}>פעילות</button>
+              <button type="button" className={`segment ${activityFilter === "inactive" ? "active" : ""}`} onClick={() => setActivityFilter("inactive")}>מושבתות</button>
+            </div>
+          </div>
+        </div>
+        <div className="table-wrap user-table-wrap">
+          <table className="users-table">
             <thead>
               <tr>
-                <th>שם</th>
-                <th>מייל</th>
+                <th>משתמשת</th>
                 <th>תפקיד</th>
                 <th>כיתות משויכות</th>
                 <th>סטטוס</th>
@@ -2388,37 +2491,142 @@ function UsersAdmin({
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td data-label="שם">{user.name}</td>
-                  <td data-label="מייל">{user.email}</td>
+              {filteredUsers.map((user) => (
+                <tr key={user.id} className={!user.active ? "inactive-row" : undefined}>
+                  <td data-label="משתמשת">
+                    <div className="user-cell">
+                      <span className="user-avatar" aria-hidden="true">{user.name.trim().charAt(0) || "מ"}</span>
+                      <div>
+                        <strong>{user.name}</strong>
+                        <span>{user.email}</span>
+                      </div>
+                    </div>
+                  </td>
                   <td data-label="תפקיד">
-                    <select value={user.role} onChange={(event) => onRoleChange(user.id, event.target.value as Role)}>
-                      <option value="staff">צוות</option>
-                      <option value="handler">מטפל/ת בבקשות</option>
-                      <option value="admin">אדמין</option>
-                    </select>
+                    <span className={`role-pill role-${user.role}`}>{roleLabels[user.role]}</span>
                   </td>
                   <td data-label="כיתות משויכות">
-                    <input
-                      value={formatClassList(user.classNames)}
-                      onChange={(event) => onClassChange(user.id, event.target.value)}
-                      placeholder={user.role === "staff" ? "כיתות מופרדות בפסיק" : "לא נדרש"}
-                      disabled={user.role !== "staff"}
-                    />
+                    {user.role === "staff" && user.classNames?.length ? (
+                      <div className="user-class-list">
+                        {user.classNames.map((className) => <span className="class-badge" key={className}>{className}</span>)}
+                      </div>
+                    ) : (
+                      <span className="muted-cell">לא נדרש</span>
+                    )}
                   </td>
-                  <td data-label="סטטוס">{user.active ? "פעיל" : "מושבת"}</td>
+                  <td data-label="סטטוס">
+                    <span className={`user-status ${user.active ? "active" : "inactive"}`}>
+                      <span className={`student-status-dot ${user.active ? "active" : "inactive"}`} />
+                      {user.active ? "פעילה" : "מושבתת"}
+                    </span>
+                  </td>
                   <td data-label="פעולות">
-                    <button className="btn danger" type="button" onClick={() => confirmDelete(user)} disabled={user.id === currentUserId}>
-                      מחיקה
-                    </button>
+                    <div className="user-actions">
+                      {user.id === currentUserId && <span className="current-user-chip">המשתמשת הנוכחית</span>}
+                      <button className="btn" type="button" onClick={() => openEditModal(user)}>
+                        עריכה
+                      </button>
+                      <button className="btn danger" type="button" onClick={() => confirmDelete(user)} disabled={user.id === currentUserId}>
+                        {user.active ? "השבתה / מחיקה" : "מחיקה"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {filteredUsers.length === 0 && <div className="empty compact">לא נמצאו משתמשות שמתאימות לסינון הנוכחי.</div>}
         </div>
       </section>
+
+      {inviteModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="הוספת משתמשת">
+          <section className="modal user-form-modal">
+            <div className="panel-header">
+              <h3>הוספת משתמשת</h3>
+              <button className="btn" type="button" onClick={() => setInviteModalOpen(false)}>סגירה</button>
+            </div>
+            <form className="panel-body form-grid" onSubmit={submit}>
+              <div className="field">
+                <label htmlFor="inviteName">שם</label>
+                <input id="inviteName" value={name} onChange={(event) => setName(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="inviteEmail">מייל</label>
+                <input id="inviteEmail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="inviteRole">תפקיד</label>
+                <select id="inviteRole" value={role} onChange={(event) => setRole(event.target.value as Role)}>
+                  <option value="staff">צוות</option>
+                  <option value="handler">מטפל/ת בבקשות</option>
+                  <option value="admin">אדמין</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="inviteClass">כיתות משויכות</label>
+                <input id="inviteClass" value={classNamesText} onChange={(event) => setClassNamesText(event.target.value)} placeholder="לדוגמה: ג׳ תקשורת, ד׳1" disabled={role !== "staff"} />
+              </div>
+              <div className="field full">
+                <label htmlFor="invitePassword">סיסמה ראשונית</label>
+                <input id="invitePassword" type="password" value={initialPassword} onChange={(event) => setInitialPassword(event.target.value)} minLength={6} placeholder="לפחות 6 תווים" autoComplete="new-password" />
+                <span className="field-help">האדמין מוסר את הסיסמה הראשונית לאשת הצוות. היא לא נשמרת בטבלה.</span>
+              </div>
+              <div className="field full">
+                <button className="btn primary" type="submit">
+                  יצירת משתמשת
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {editingUser && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`עריכת ${editingUser.name}`}>
+          <section className="modal user-form-modal">
+            <div className="panel-header">
+              <h3>עריכת משתמשת</h3>
+              <button className="btn" type="button" onClick={closeEditModal}>סגירה</button>
+            </div>
+            <form className="panel-body form-grid" onSubmit={submitEdit}>
+              <div className="field">
+                <label htmlFor="editUserName">שם מלא</label>
+                <input id="editUserName" value={editName} onChange={(event) => setEditName(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="editUserEmail">מייל</label>
+                <input id="editUserEmail" type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="editUserRole">תפקיד</label>
+                <select id="editUserRole" value={editRole} onChange={(event) => setEditRole(event.target.value as Role)}>
+                  <option value="staff">צוות</option>
+                  <option value="handler">מטפל/ת בבקשות</option>
+                  <option value="admin">אדמין</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="editUserClasses">כיתות משויכות</label>
+                <input id="editUserClasses" value={editClassNamesText} onChange={(event) => setEditClassNamesText(event.target.value)} placeholder="לדוגמה: ג׳ תקשורת, ד׳1" disabled={editRole !== "staff"} />
+              </div>
+              <label className="field checkbox-field full" htmlFor="editUserActive">
+                <input id="editUserActive" type="checkbox" checked={editActive} onChange={(event) => setEditActive(event.target.checked)} disabled={editingUser.id === currentUserId} />
+                <span>משתמשת פעילה</span>
+              </label>
+              {editingUser.id === currentUserId && <span className="field-help full">אי אפשר להשבית את המשתמשת המחוברת כרגע.</span>}
+              <div className="field full button-row">
+                <button className="btn primary" type="submit">
+                  שמירת שינויים
+                </button>
+                <button className="btn" type="button" onClick={closeEditModal}>
+                  ביטול
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </>
   );
 }
