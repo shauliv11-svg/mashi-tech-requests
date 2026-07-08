@@ -9,7 +9,7 @@ type PortalSystem = "requests" | "equipment" | "admin";
 type EquipmentPage = "devices" | "mine" | "maintenance" | "log" | "manage";
 type SubjectType = "student" | "class";
 type RequestStatus = "new" | "progress" | "waiting" | "closed";
-type DeviceType = "מחשב" | "אייפד" | "אייפד אייר" | "מחשב מיקוד מבט" | "אייפד פרו";
+type DeviceType = "מחשב" | "אייפד" | "אייפד אייר" | "מחשב מיקוד מבט" | "אייפד פרו" | "דרושה הנגשה";
 type CareProvider = "משרד הבריאות" | "משרד החינוך";
 
 type Student = {
@@ -154,7 +154,7 @@ const requestTypes = [
   "אחר"
 ];
 
-const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "אייפד אייר", "מחשב מיקוד מבט", "אייפד פרו"];
+const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "אייפד אייר", "מחשב מיקוד מבט", "אייפד פרו", "דרושה הנגשה"];
 const schoolDeviceTypes: SchoolDeviceType[] = ["אייפד", "אייפד אייר", "אייפד פרו", "מחשב", "ציוד אחר"];
 const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
 const studentImportHeaders = [
@@ -1445,6 +1445,23 @@ export default function Home() {
     return true;
   }
 
+  async function restoreStudent(student: Student) {
+    const restored = { ...student, active: true };
+    if (!isSupabaseConfigured || !supabase) {
+      setStudents((items) => items.map((item) => item.id === student.id ? restored : item));
+      showToast("התלמיד/ה הוחזרו לפעילות.");
+      return;
+    }
+
+    const { data, error } = await supabase.from("students").update({ active: true }).eq("id", student.id).select("*").single();
+    if (error) {
+      showToast("החזרת התלמיד/ה לפעילות נכשלה.");
+      return;
+    }
+    setStudents((items) => items.map((item) => item.id === student.id ? mapStudent(data) : item));
+    showToast("התלמיד/ה הוחזרו לפעילות.");
+  }
+
   async function importStudents(newStudents: Student[]) {
     if (!isSupabaseConfigured || !supabase) {
       setStudents((items) => [...items, ...newStudents]);
@@ -1905,6 +1922,7 @@ export default function Home() {
             onAdd={createStudent}
             onUpdate={updateStudent}
             onDelete={deleteStudent}
+            onRestore={restoreStudent}
             onImport={importStudents}
           />
         )}
@@ -4100,6 +4118,7 @@ function StudentsAdmin({
   onAdd,
   onUpdate,
   onDelete,
+  onRestore,
   onImport
 }: {
   students: Student[];
@@ -4107,6 +4126,7 @@ function StudentsAdmin({
   onAdd: (student: Student) => void | Promise<void>;
   onUpdate: (student: Student) => void | Promise<void>;
   onDelete: (student: Student) => boolean | Promise<boolean>;
+  onRestore: (student: Student) => void | Promise<void>;
   onImport: (students: Student[]) => void | Promise<void>;
 }) {
   const [editingStudentId, setEditingStudentId] = useState<number | "new">("new");
@@ -4127,6 +4147,7 @@ function StudentsAdmin({
   const [studentSearch, setStudentSearch] = useState("");
   const [studentHistoryFilter, setStudentHistoryFilter] = useState<"all" | "repairs">("all");
   const [historyStudentId, setHistoryStudentId] = useState<number | null>(null);
+  const [deleteStudentCandidate, setDeleteStudentCandidate] = useState<Student | null>(null);
   const [studentFormOpen, setStudentFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -4286,19 +4307,24 @@ function StudentsAdmin({
     reader.readAsText(file, "utf-8");
   }
 
-  async function confirmDeleteStudent(student: Student) {
-    const requestCount = studentRequestCounts.get(student.id) ?? 0;
-    const message = requestCount
-      ? `להשבית את ${student.fullName}? יש לתלמיד/ה ${requestCount} פניות, ולכן נשמור את ההיסטוריה ולא נמחק לגמרי.`
-      : `למחוק את ${student.fullName} מהרשימה?`;
+  function requestDeleteStudent(student: Student) {
+    setDeleteStudentCandidate(student);
+  }
 
-    if (!window.confirm(message)) return;
-    const didDelete = await onDelete(student);
+  async function confirmDeleteStudent() {
+    if (!deleteStudentCandidate) return;
+    const didDelete = await onDelete(deleteStudentCandidate);
     if (!didDelete) return;
+    setDeleteStudentCandidate(null);
     setHistoryStudentId(null);
-    if (editingStudentId === student.id) {
+    if (editingStudentId === deleteStudentCandidate.id) {
       closeStudentForm();
     }
+  }
+
+  async function restoreInactiveStudent(student: Student) {
+    await onRestore(student);
+    setHistoryStudentId(null);
   }
 
   return (
@@ -4471,6 +4497,31 @@ function StudentsAdmin({
         </div>
       )}
 
+      {deleteStudentCandidate && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`מחיקת ${deleteStudentCandidate.fullName}`}>
+          <section className="modal student-form-modal">
+            <div className="panel-header">
+              <div>
+                <h3>{studentRequestCounts.get(deleteStudentCandidate.id) ? "השבתת תלמיד/ה" : "מחיקת תלמיד/ה"}</h3>
+                <p>{deleteStudentCandidate.fullName} · {deleteStudentCandidate.className}</p>
+              </div>
+              <button className="btn" type="button" onClick={() => setDeleteStudentCandidate(null)}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <p className="modal-warning-text">
+                {(studentRequestCounts.get(deleteStudentCandidate.id) ?? 0) > 0
+                  ? "יש לתלמיד/ה פניות היסטוריות, לכן הפעולה תשבית את הרשומה ותשמור את התיעוד. אפשר להחזיר מהשבתה בהמשך."
+                  : "אין לתלמיד/ה פניות היסטוריות, לכן הפעולה תמחק את הרשומה מהרשימה."}
+              </p>
+              <div className="button-row">
+                <button className="btn" type="button" onClick={() => setDeleteStudentCandidate(null)}>ביטול</button>
+                <button className="btn danger" type="button" onClick={confirmDeleteStudent}>{studentRequestCounts.get(deleteStudentCandidate.id) ? "השבתה" : "מחיקה"}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {historyStudent && (
         <div className="modal-backdrop student-record-backdrop" role="dialog" aria-modal="true" aria-label={`תיק תלמיד ${historyStudent.fullName}`}>
           <div className="student-record-modal">
@@ -4482,7 +4533,8 @@ function StudentsAdmin({
                 setHistoryStudentId(null);
                 loadStudent(historyStudent);
               }}
-              onDelete={() => confirmDeleteStudent(historyStudent)}
+              onDelete={() => requestDeleteStudent(historyStudent)}
+              onRestore={!historyStudent.active ? () => restoreInactiveStudent(historyStudent) : undefined}
             />
           </div>
         </div>
@@ -4496,13 +4548,15 @@ function StudentRecordPanel({
   requests,
   onClose,
   onEdit,
-  onDelete
+  onDelete,
+  onRestore
 }: {
   student: Student;
   requests: TechRequest[];
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onRestore?: () => void;
 }) {
   const stats = {
     total: requests.length,
@@ -4524,6 +4578,7 @@ function StudentRecordPanel({
         </div>
         <div className="button-row">
           {onEdit && <button className="btn" type="button" onClick={onEdit}>עריכה</button>}
+          {onRestore && <button className="btn primary" type="button" onClick={onRestore}>החזרה לפעילות</button>}
           <button className="btn" type="button" onClick={onClose}>סגירה</button>
         </div>
       </div>
@@ -4610,13 +4665,22 @@ function StudentRecordPanel({
           )}
         </section>
 
-        {onDelete && (
+        {onDelete && student.active && (
           <section className="student-record-danger-zone">
             <div>
               <strong>{requests.length ? "השבתת תלמיד/ה" : "מחיקת תלמיד/ה"}</strong>
               <p>{requests.length ? "יש לתלמיד/ה פניות היסטוריות, לכן הפעולה תשבית את הרשומה ותשמור את התיעוד." : "אין לתלמיד/ה פניות היסטוריות, לכן אפשר למחוק את הרשומה מהרשימה."}</p>
             </div>
             <button className="btn danger subtle" type="button" onClick={onDelete}>{requests.length ? "השבתה" : "מחיקה"}</button>
+          </section>
+        )}
+        {onRestore && !student.active && (
+          <section className="student-record-danger-zone restore-zone">
+            <div>
+              <strong>החזרה מהשבתה</strong>
+              <p>התלמיד/ה מושבת/ת כרגע ולא יופיעו בבחירות הרגילות. אפשר להחזיר את הרשומה לפעילות.</p>
+            </div>
+            <button className="btn primary" type="button" onClick={onRestore}>החזרה לפעילות</button>
           </section>
         )}
       </div>

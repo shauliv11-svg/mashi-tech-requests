@@ -16,7 +16,7 @@ begin
 
   alter table students
     add constraint students_device_type_check
-    check (device_type in ('מחשב', 'אייפד', 'אייפד אייר', 'מחשב מיקוד מבט', 'אייפד פרו'));
+    check (device_type in ('מחשב', 'אייפד', 'אייפד אייר', 'מחשב מיקוד מבט', 'אייפד פרו', 'דרושה הנגשה'));
 end $$;
 
 
