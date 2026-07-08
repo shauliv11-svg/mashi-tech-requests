@@ -1477,6 +1477,66 @@ export default function Home() {
     showToast("המכשיר נשמר בדאטה בייס.");
   }
 
+  async function updateSchoolDevice(device: SchoolDevice) {
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      setSchoolDevices((items) => items.map((item) => item.id === device.id ? device : item));
+      showToast(equipmentSupported ? "פרטי המכשיר נשמרו." : "פרטי המכשיר נשמרו מקומית. צריך להריץ SQL לציוד כדי לשמור בדאטה בייס.");
+      return;
+    }
+
+    const { data, error } = await supabase.from("school_devices").update(schoolDevicePayload(device)).eq("id", device.id).select("*").single();
+    if (error) {
+      showToast("שמירת פרטי המכשיר נכשלה.");
+      return;
+    }
+    setSchoolDevices((items) => items.map((item) => item.id === device.id ? mapSchoolDevice(data) : item));
+    showToast("פרטי המכשיר נשמרו בדאטה בייס.");
+  }
+
+  async function deleteSchoolDevice(device: SchoolDevice) {
+    const hasOpenLoan = deviceLoans.some((loan) => loan.deviceId === device.id && loan.status === "open");
+    if (hasOpenLoan) {
+      showToast("אי אפשר למחוק מכשיר שמושאל כרגע. קודם צריך להחזיר אותו.");
+      return false;
+    }
+
+    const hasHistory = deviceLoans.some((loan) => loan.deviceId === device.id) || deviceMaintenance.some((item) => item.deviceId === device.id);
+
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      if (hasHistory) {
+        setSchoolDevices((items) => items.map((item) => item.id === device.id ? { ...item, active: false, status: "inactive" } : item));
+        showToast("המכשיר הושבת כדי לשמור היסטוריית השאלות ותחזוקה.");
+      } else {
+        setSchoolDevices((items) => items.filter((item) => item.id !== device.id));
+        setDeviceAvailabilityBlocks((items) => items.filter((item) => item.deviceId !== device.id));
+        showToast("המכשיר נמחק מהרשימה.");
+      }
+      return true;
+    }
+
+    if (hasHistory) {
+      const disabledDevice = { ...device, active: false, status: "inactive" as SchoolDeviceStatus };
+      const { data, error } = await supabase.from("school_devices").update(schoolDevicePayload(disabledDevice)).eq("id", device.id).select("*").single();
+      if (error) {
+        showToast("השבתת המכשיר נכשלה.");
+        return false;
+      }
+      setSchoolDevices((items) => items.map((item) => item.id === device.id ? mapSchoolDevice(data) : item));
+      showToast("המכשיר הושבת כדי לשמור היסטוריית השאלות ותחזוקה.");
+      return true;
+    }
+
+    const { error } = await supabase.from("school_devices").delete().eq("id", device.id);
+    if (error) {
+      showToast("מחיקת המכשיר נכשלה.");
+      return false;
+    }
+    setSchoolDevices((items) => items.filter((item) => item.id !== device.id));
+    setDeviceAvailabilityBlocks((items) => items.filter((item) => item.deviceId !== device.id));
+    showToast("המכשיר נמחק מהדאטה בייס.");
+    return true;
+  }
+
   async function checkoutSchoolDevice(device: SchoolDevice, borrowerId: number, note: string, expectedReturn?: string) {
     if (!currentUser) return;
     if (device.status !== "available") {
@@ -1819,6 +1879,8 @@ export default function Home() {
             currentUser={currentUser}
             canManage={canManage}
             onCreateDevice={createSchoolDevice}
+            onUpdateDevice={updateSchoolDevice}
+            onDeleteDevice={deleteSchoolDevice}
             availabilityBlocks={deviceAvailabilityBlocks}
             onCheckout={checkoutSchoolDevice}
             onReturn={returnSchoolDevice}
@@ -2213,6 +2275,8 @@ function EquipmentHub({
   currentUser,
   canManage,
   onCreateDevice,
+  onUpdateDevice,
+  onDeleteDevice,
   onCheckout,
   onReturn,
   onCreateAvailabilityBlock,
@@ -2227,6 +2291,8 @@ function EquipmentHub({
   currentUser: User;
   canManage: boolean;
   onCreateDevice: (device: SchoolDevice) => void | Promise<void>;
+  onUpdateDevice: (device: SchoolDevice) => void | Promise<void>;
+  onDeleteDevice: (device: SchoolDevice) => boolean | Promise<boolean>;
   onCheckout: (device: SchoolDevice, borrowerId: number, note: string, expectedReturn?: string) => void | Promise<void>;
   onReturn: (loan: DeviceLoan, returnNote: string) => void | Promise<void>;
   onCreateAvailabilityBlock: (block: DeviceAvailabilityBlock) => void | Promise<void>;
@@ -2238,6 +2304,8 @@ function EquipmentHub({
   const [serialNumber, setSerialNumber] = useState("");
   const [deviceNotes, setDeviceNotes] = useState("");
   const [filter, setFilter] = useState<"all" | SchoolDeviceStatus>("all");
+  const [editingDevice, setEditingDevice] = useState<SchoolDevice | null>(null);
+  const [deleteDevice, setDeleteDevice] = useState<SchoolDevice | null>(null);
   const [checkoutDevice, setCheckoutDevice] = useState<SchoolDevice | null>(null);
   const [checkoutNote, setCheckoutNote] = useState("");
   const [expectedReturn, setExpectedReturn] = useState("");
@@ -2306,10 +2374,16 @@ function EquipmentHub({
     closeEquipmentModal();
   }
 
-  function submitDevice(event: FormEvent<HTMLFormElement>) {
+  async function submitDevice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
-    onCreateDevice({
+    const payload: SchoolDevice = editingDevice ? {
+      ...editingDevice,
+      name: name.trim(),
+      deviceType,
+      serialNumber: serialNumber.trim() || undefined,
+      notes: deviceNotes.trim() || undefined
+    } : {
       id: Date.now(),
       name: name.trim(),
       deviceType,
@@ -2318,10 +2392,41 @@ function EquipmentHub({
       status: "available",
       notes: deviceNotes.trim() || undefined,
       active: true
-    });
+    };
+
+    if (editingDevice) {
+      await onUpdateDevice(payload);
+    } else {
+      await onCreateDevice(payload);
+    }
+    resetDeviceForm();
+  }
+
+  function startEditDevice(device: SchoolDevice) {
+    setEditingDevice(device);
+    setName(device.name);
+    setDeviceType(device.deviceType);
+    setSerialNumber(device.serialNumber ?? "");
+    setDeviceNotes(device.notes ?? "");
+  }
+
+  function resetDeviceForm() {
+    setEditingDevice(null);
     setName("");
+    setDeviceType("אייפד");
     setSerialNumber("");
     setDeviceNotes("");
+  }
+
+  function requestDeleteDevice(device: SchoolDevice) {
+    setDeleteDevice(device);
+  }
+
+  async function confirmDeleteDevice() {
+    if (!deleteDevice) return;
+    const deleted = await onDeleteDevice(deleteDevice);
+    if (deleted && editingDevice?.id === deleteDevice.id) resetDeviceForm();
+    if (deleted) setDeleteDevice(null);
   }
 
   function submitAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
@@ -2513,7 +2618,7 @@ function EquipmentHub({
           <div className="panel-body equipment-management-grid">
             <div className="equipment-management-forms">
               <form className="equipment-add-form" onSubmit={submitDevice}>
-                <strong className="equipment-form-title">הוספת מכשיר</strong>
+                <strong className="equipment-form-title">{editingDevice ? "עריכת מכשיר" : "הוספת מכשיר"}</strong>
                 <div className="field">
                   <label htmlFor="schoolDeviceName">שם מכשיר</label>
                   <input id="schoolDeviceName" value={name} onChange={(event) => setName(event.target.value)} placeholder="לדוגמה: אייפד 04" />
@@ -2532,7 +2637,10 @@ function EquipmentHub({
                   <label htmlFor="schoolDeviceNotes">הערות</label>
                   <textarea id="schoolDeviceNotes" value={deviceNotes} onChange={(event) => setDeviceNotes(event.target.value)} />
                 </div>
-                <button className="btn primary" type="submit">הוספת מכשיר</button>
+                <div className="button-row compact-actions">
+                  {editingDevice && <button className="btn" type="button" onClick={resetDeviceForm}>ביטול עריכה</button>}
+                  <button className="btn primary" type="submit">{editingDevice ? "שמירת שינויים" : "הוספת מכשיר"}</button>
+                </div>
               </form>
 
               <form className="equipment-add-form" onSubmit={submitAvailabilityBlock}>
@@ -2571,21 +2679,47 @@ function EquipmentHub({
               {devices.filter((device) => device.active).map((device) => {
                 const blocks = activeAvailabilityBlocks.filter((block) => block.deviceId === device.id);
                 return (
-                  <article className="equipment-loan-card" key={device.id}>
+                  <article className={`equipment-loan-card ${editingDevice?.id === device.id ? "selected" : ""}`} key={device.id}>
                     <strong>{device.name}</strong>
                     <span>{device.deviceType} · {schoolDeviceStatusLabels[device.status]}</span>
                     <span>{device.serialNumber || "אין מספר סידורי"}</span>
+                    {device.notes && <p>{device.notes}</p>}
                     {blocks.length > 0 && (
                       <div className="equipment-block-list">
                         {blocks.map((block) => <span key={block.id}>{formatAvailabilityBlock(block)}{block.note ? ` · ${block.note}` : ""}</span>)}
                       </div>
                     )}
+                    <div className="button-row compact-actions">
+                      <button className="btn" type="button" onClick={() => startEditDevice(device)}>עריכה</button>
+                      <button className="btn danger" type="button" onClick={() => requestDeleteDevice(device)}>מחיקה</button>
+                    </div>
                   </article>
                 );
               })}
             </div>
           </div>
         </section>
+      )}
+
+      {deleteDevice && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`מחיקת ${deleteDevice.name}`}>
+          <section className="modal equipment-action-modal">
+            <div className="panel-header">
+              <div>
+                <h3>מחיקת מכשיר</h3>
+                <p>{deleteDevice.name} · {deleteDevice.deviceType}</p>
+              </div>
+              <button className="btn" type="button" onClick={() => setDeleteDevice(null)}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <p className="modal-warning-text">אם יש למכשיר היסטוריית השאלות או תחזוקה, הוא יושבת במקום להימחק כדי לשמור את ההיסטוריה.</p>
+              <div className="button-row">
+                <button className="btn" type="button" onClick={() => setDeleteDevice(null)}>ביטול</button>
+                <button className="btn danger" type="button" onClick={confirmDeleteDevice}>מחיקה</button>
+              </div>
+            </div>
+          </section>
+        </div>
       )}
 
       {checkoutDevice && (
