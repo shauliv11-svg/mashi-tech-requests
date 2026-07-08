@@ -4,7 +4,9 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "staff" | "handler" | "admin";
-type View = "login" | "myRequests" | "newRequest" | "manageRequests" | "updates" | "users" | "students";
+type View = "login" | "myRequests" | "newRequest" | "manageRequests" | "updates" | "equipment" | "users" | "students";
+type PortalSystem = "requests" | "equipment" | "admin";
+type EquipmentPage = "devices" | "mine" | "maintenance" | "log" | "manage";
 type SubjectType = "student" | "class";
 type RequestStatus = "new" | "progress" | "waiting" | "closed";
 type DeviceType = "מחשב" | "אייפד" | "אייפד אייר" | "מחשב מיקוד מבט" | "אייפד פרו";
@@ -62,6 +64,59 @@ type TreatmentUpdate = {
   createdAtIso?: string;
 };
 
+type SchoolDeviceStatus = "available" | "checked_out" | "repair" | "inactive";
+type SchoolDeviceType = "אייפד" | "אייפד אייר" | "אייפד פרו" | "מחשב" | "ציוד אחר";
+type DeviceLoanStatus = "open" | "returned";
+type MaintenanceStatus = "open" | "progress" | "closed";
+
+type SchoolDevice = {
+  id: number;
+  name: string;
+  deviceType: SchoolDeviceType;
+  serialNumber?: string;
+  location?: string;
+  status: SchoolDeviceStatus;
+  notes?: string;
+  active: boolean;
+};
+
+type DeviceLoan = {
+  id: number;
+  deviceId: number;
+  borrowerId: number;
+  checkedOutAt: string;
+  checkedOutAtIso?: string;
+  expectedReturn?: string;
+  returnedAt?: string;
+  returnedAtIso?: string;
+  checkoutNote?: string;
+  returnNote?: string;
+  status: DeviceLoanStatus;
+};
+
+type DeviceMaintenance = {
+  id: number;
+  deviceId: number;
+  loanId?: number;
+  reporterId?: number;
+  handlerId?: number;
+  note: string;
+  status: MaintenanceStatus;
+  createdAt: string;
+  createdAtIso?: string;
+  closedAt?: string;
+};
+
+type DeviceAvailabilityBlock = {
+  id: number;
+  deviceId: number;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  note?: string;
+  active: boolean;
+};
+
 const roleLabels: Record<Role, string> = {
   staff: "צוות",
   handler: "מטפל/ת בבקשות",
@@ -75,6 +130,21 @@ const statusLabels: Record<RequestStatus, string> = {
   closed: "נסגרה"
 };
 
+const schoolDeviceStatusLabels: Record<SchoolDeviceStatus, string> = {
+  available: "זמין",
+  checked_out: "מושאל",
+  repair: "בתחזוקה",
+  inactive: "לא פעיל"
+};
+
+const maintenanceStatusLabels: Record<MaintenanceStatus, string> = {
+  open: "פתוח",
+  progress: "בטיפול",
+  closed: "נסגר"
+};
+
+const hebrewWeekdays = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+
 const requestTypes = [
   "התאמת טכנולוגיה מסייעת",
   "תקלה בציוד",
@@ -85,6 +155,7 @@ const requestTypes = [
 ];
 
 const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "אייפד אייר", "מחשב מיקוד מבט", "אייפד פרו"];
+const schoolDeviceTypes: SchoolDeviceType[] = ["אייפד", "אייפד אייר", "אייפד פרו", "מחשב", "ציוד אחר"];
 const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
 const studentImportHeaders = [
   "שם תלמיד/ה",
@@ -216,26 +287,104 @@ const initialTreatmentUpdates: TreatmentUpdate[] = [
   }
 ];
 
-const navByRole: Record<Role, { view: View; label: string; mobileLabel: string }[]> = {
-  staff: [
-    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
-    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" }
-  ],
-  handler: [
-    { view: "updates", label: "מה חדש", mobileLabel: "מה חדש" },
-    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול בקשות" },
-    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
-    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" }
-  ],
-  admin: [
-    { view: "updates", label: "מה חדש", mobileLabel: "מה חדש" },
-    { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול בקשות" },
-    { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות שלי" },
-    { view: "newRequest", label: "בקשה חדשה", mobileLabel: "בקשה חדשה" },
-    { view: "users", label: "משתמשים", mobileLabel: "משתמשים" },
-    { view: "students", label: "תלמידים", mobileLabel: "תלמידים" }
-  ]
+const initialSchoolDevices: SchoolDevice[] = [
+  { id: 1, name: "אייפד בית ספרי 01", deviceType: "אייפד", serialNumber: "MSHI-IPAD-01", location: "ארון תקשוב", status: "available", notes: "כולל מגן ומטען", active: true },
+  { id: 2, name: "אייפד אייר 02", deviceType: "אייפד אייר", serialNumber: "MSHI-AIR-02", location: "ארון תקשוב", status: "available", notes: "מיועד להשאלה לפעילות כיתתית", active: true },
+  { id: 3, name: "אייפד פרו 03", deviceType: "אייפד פרו", serialNumber: "MSHI-PRO-03", location: "חדר טיפול", status: "repair", notes: "בדיקת עט ומקלדת", active: true }
+];
+
+const initialDeviceLoans: DeviceLoan[] = [];
+
+const initialDeviceMaintenance: DeviceMaintenance[] = [
+  { id: 1, deviceId: 3, reporterId: 2, note: "בדיקה יזומה: לוודא שהעט נטען והמקלדת מתחברת.", status: "open", createdAt: "24.06.2026, 12:00" }
+];
+
+const initialDeviceAvailabilityBlocks: DeviceAvailabilityBlock[] = [];
+
+const systemLabels: Record<PortalSystem, { title: string; subtitle: string; mobileLabel: string }> = {
+  requests: {
+    title: "בקשות עבור ציוד תלמידים",
+    subtitle: "ציוד אישי של תלמידים, התאמות, תקלות ותיקי תלמיד.",
+    mobileLabel: "בקשות"
+  },
+  equipment: {
+    title: "שימוש בציוד בית ספרי",
+    subtitle: "השאלה, החזרה ותחזוקה של מכשירים משותפים.",
+    mobileLabel: "ציוד"
+  },
+  admin: {
+    title: "ניהול מערכת",
+    subtitle: "משתמשות, תלמידים והגדרות בסיס משותפות.",
+    mobileLabel: "ניהול"
+  }
 };
+
+const navBySystem: Record<PortalSystem, Record<Role, { view: View; label: string; mobileLabel: string; equipmentPage?: EquipmentPage }[]>> = {
+  requests: {
+    staff: [
+      { view: "myRequests", label: "הבקשות שלי", mobileLabel: "הבקשות" },
+      { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
+    ],
+    handler: [
+      { view: "updates", label: "מה חדש", mobileLabel: "מה חדש" },
+      { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול" },
+      { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
+      { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
+    ],
+    admin: [
+      { view: "updates", label: "מה חדש", mobileLabel: "מה חדש" },
+      { view: "manageRequests", label: "ניהול בקשות", mobileLabel: "ניהול" },
+      { view: "myRequests", label: "הבקשות שלי", mobileLabel: "שלי" },
+      { view: "newRequest", label: "בקשה חדשה", mobileLabel: "חדשה" }
+    ]
+  },
+  equipment: {
+    staff: [
+      { view: "equipment", equipmentPage: "devices", label: "מכשירים", mobileLabel: "מכשירים" },
+      { view: "equipment", equipmentPage: "mine", label: "אצלי עכשיו", mobileLabel: "אצלי" }
+    ],
+    handler: [
+      { view: "equipment", equipmentPage: "devices", label: "מכשירים", mobileLabel: "מכשירים" },
+      { view: "equipment", equipmentPage: "mine", label: "השאלות פעילות", mobileLabel: "השאלות" },
+      { view: "equipment", equipmentPage: "maintenance", label: "תחזוקה פתוחה", mobileLabel: "תחזוקה" },
+      { view: "equipment", equipmentPage: "log", label: "יומן תחזוקה", mobileLabel: "יומן" }
+    ],
+    admin: [
+      { view: "equipment", equipmentPage: "devices", label: "מכשירים", mobileLabel: "מכשירים" },
+      { view: "equipment", equipmentPage: "mine", label: "השאלות פעילות", mobileLabel: "השאלות" },
+      { view: "equipment", equipmentPage: "maintenance", label: "תחזוקה פתוחה", mobileLabel: "תחזוקה" },
+      { view: "equipment", equipmentPage: "log", label: "יומן תחזוקה", mobileLabel: "יומן" },
+      { view: "equipment", equipmentPage: "manage", label: "ניהול מכשירים", mobileLabel: "ניהול" }
+    ]
+  },
+  admin: {
+    staff: [],
+    handler: [],
+    admin: [
+      { view: "users", label: "משתמשים", mobileLabel: "משתמשים" },
+      { view: "students", label: "תלמידים", mobileLabel: "תלמידים" }
+    ]
+  }
+};
+
+function systemForView(view: View): PortalSystem {
+  if (view === "equipment") return "equipment";
+  if (view === "users" || view === "students") return "admin";
+  return "requests";
+}
+
+function availableSystemsForRole(role: Role): PortalSystem[] {
+  if (role === "admin") return ["requests", "equipment", "admin"];
+  if (role === "handler") return ["requests", "equipment"];
+  return ["requests"];
+}
+
+function defaultViewForSystem(system: PortalSystem, role: Role): View {
+  if (system === "equipment") return "equipment";
+  if (system === "admin") return "users";
+  if (role === "staff") return "myRequests";
+  return "updates";
+}
 
 function today() {
   return new Intl.DateTimeFormat("he-IL").format(new Date());
@@ -273,6 +422,23 @@ function isWithinLastHours(value: string | undefined, hours: number) {
   const parsed = parseDateValue(value);
   if (!parsed) return false;
   return Date.now() - parsed.getTime() <= hours * 60 * 60 * 1000;
+}
+
+function timeToMinutes(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+function isAvailabilityBlockActive(block: DeviceAvailabilityBlock, now = new Date()) {
+  if (!block.active || now.getDay() !== block.dayOfWeek) return false;
+  const current = now.getHours() * 60 + now.getMinutes();
+  const start = timeToMinutes(block.startTime);
+  const end = timeToMinutes(block.endTime);
+  return start <= end ? current >= start && current < end : current >= start || current < end;
+}
+
+function formatAvailabilityBlock(block: DeviceAvailabilityBlock) {
+  return `יום ${hebrewWeekdays[block.dayOfWeek]} ${block.startTime}-${block.endTime}`;
 }
 
 function parseClassList(value: string) {
@@ -445,6 +611,62 @@ function mapTreatmentUpdate(row: any): TreatmentUpdate {
   };
 }
 
+function mapSchoolDevice(row: any): SchoolDevice {
+  return {
+    id: Number(row.id),
+    name: row.name,
+    deviceType: row.device_type,
+    serialNumber: row.serial_number ?? undefined,
+    location: row.location ?? undefined,
+    status: row.status,
+    notes: row.notes ?? undefined,
+    active: row.active
+  };
+}
+
+function mapDeviceLoan(row: any): DeviceLoan {
+  return {
+    id: Number(row.id),
+    deviceId: Number(row.device_id),
+    borrowerId: Number(row.borrower_id),
+    checkedOutAt: displayDateTime(row.checked_out_at),
+    checkedOutAtIso: row.checked_out_at ?? undefined,
+    expectedReturn: row.expected_return ?? undefined,
+    returnedAt: row.returned_at ? displayDateTime(row.returned_at) : undefined,
+    returnedAtIso: row.returned_at ?? undefined,
+    checkoutNote: row.checkout_note ?? undefined,
+    returnNote: row.return_note ?? undefined,
+    status: row.status
+  };
+}
+
+function mapDeviceMaintenance(row: any): DeviceMaintenance {
+  return {
+    id: Number(row.id),
+    deviceId: Number(row.device_id),
+    loanId: row.loan_id ? Number(row.loan_id) : undefined,
+    reporterId: row.reporter_id ? Number(row.reporter_id) : undefined,
+    handlerId: row.handler_id ? Number(row.handler_id) : undefined,
+    note: row.note,
+    status: row.status,
+    createdAt: displayDateTime(row.created_at),
+    createdAtIso: row.created_at ?? undefined,
+    closedAt: row.closed_at ? displayDateTime(row.closed_at) : undefined
+  };
+}
+
+function mapDeviceAvailabilityBlock(row: any): DeviceAvailabilityBlock {
+  return {
+    id: Number(row.id),
+    deviceId: Number(row.device_id),
+    dayOfWeek: Number(row.day_of_week),
+    startTime: row.start_time,
+    endTime: row.end_time,
+    note: row.note ?? undefined,
+    active: row.active
+  };
+}
+
 function studentPayload(student: Student, includeResponsibilityContacts = true) {
   const payload: Record<string, unknown> = {
     full_name: student.fullName,
@@ -498,13 +720,66 @@ function treatmentUpdatePayload(update: TreatmentUpdate) {
   };
 }
 
+function schoolDevicePayload(device: SchoolDevice) {
+  return {
+    name: device.name,
+    device_type: device.deviceType,
+    serial_number: device.serialNumber || null,
+    location: device.location || null,
+    status: device.status,
+    notes: device.notes || null,
+    active: device.active
+  };
+}
+
+function deviceLoanPayload(loan: DeviceLoan) {
+  return {
+    device_id: loan.deviceId,
+    borrower_id: loan.borrowerId,
+    expected_return: loan.expectedReturn || null,
+    returned_at: loan.returnedAtIso || null,
+    checkout_note: loan.checkoutNote || null,
+    return_note: loan.returnNote || null,
+    status: loan.status
+  };
+}
+
+function deviceMaintenancePayload(item: DeviceMaintenance) {
+  return {
+    device_id: item.deviceId,
+    loan_id: item.loanId ?? null,
+    reporter_id: item.reporterId ?? null,
+    handler_id: item.handlerId ?? null,
+    note: item.note,
+    status: item.status,
+    closed_at: item.closedAt || null
+  };
+}
+
+function deviceAvailabilityBlockPayload(block: DeviceAvailabilityBlock) {
+  return {
+    device_id: block.deviceId,
+    day_of_week: block.dayOfWeek,
+    start_time: block.startTime,
+    end_time: block.endTime,
+    note: block.note || null,
+    active: block.active
+  };
+}
+
 export default function Home() {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [view, setView] = useState<View>("login");
+  const [activeSystem, setActiveSystem] = useState<PortalSystem>("requests");
+  const [equipmentPage, setEquipmentPage] = useState<EquipmentPage>("devices");
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [requests, setRequests] = useState<TechRequest[]>(initialRequests);
   const [treatmentUpdates, setTreatmentUpdates] = useState<TreatmentUpdate[]>(initialTreatmentUpdates);
+  const [schoolDevices, setSchoolDevices] = useState<SchoolDevice[]>(initialSchoolDevices);
+  const [deviceLoans, setDeviceLoans] = useState<DeviceLoan[]>(initialDeviceLoans);
+  const [deviceMaintenance, setDeviceMaintenance] = useState<DeviceMaintenance[]>(initialDeviceMaintenance);
+  const [deviceAvailabilityBlocks, setDeviceAvailabilityBlocks] = useState<DeviceAvailabilityBlock[]>(initialDeviceAvailabilityBlocks);
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
@@ -515,6 +790,7 @@ export default function Home() {
   const [studentResponsibilityContactsSupported, setStudentResponsibilityContactsSupported] = useState(!isSupabaseConfigured);
   const [requestHandlerSupported, setRequestHandlerSupported] = useState(!isSupabaseConfigured);
   const [treatmentLogSupported, setTreatmentLogSupported] = useState(!isSupabaseConfigured);
+  const [equipmentSupported, setEquipmentSupported] = useState(!isSupabaseConfigured);
 
   const authProfile = authEmail
     ? users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active) ?? null
@@ -528,9 +804,29 @@ export default function Home() {
     : [];
   const isAuthenticated = Boolean(currentUser);
   const canManage = currentUser?.role === "handler" || currentUser?.role === "admin";
+  const availableSystems = availableSystemsForRole(role);
+  const activeSystemNav = navBySystem[activeSystem][role];
 
   function navigate(nextView: View) {
+    setActiveSystem(systemForView(nextView));
     setView(nextView);
+    setToast("");
+  }
+
+  function navigatePortalItem(item: { view: View; equipmentPage?: EquipmentPage }) {
+    if (item.equipmentPage) {
+      setEquipmentPage(item.equipmentPage);
+    }
+    navigate(item.view);
+  }
+
+  function switchSystem(nextSystem: PortalSystem) {
+    setActiveSystem(nextSystem);
+    setView(defaultViewForSystem(nextSystem, role));
+    if (nextSystem === "equipment") {
+      setEquipmentPage("devices");
+    }
+    setSelectedRequestId(null);
     setToast("");
   }
 
@@ -543,7 +839,8 @@ export default function Home() {
     const user = users.find((item) => item.id === userId);
     if (!user) return;
     setCurrentUserId(user.id);
-    setView(user.role === "staff" ? "myRequests" : "manageRequests");
+    setActiveSystem("requests");
+    setView(defaultViewForSystem("requests", user.role));
     showToast(`נכנסת בתור ${user.name} (${roleLabels[user.role]}).`);
   }
 
@@ -553,6 +850,7 @@ export default function Home() {
       setAuthEmail(null);
     }
     setCurrentUserId(null);
+    setActiveSystem("requests");
     setView("login");
     setToast("");
   }
@@ -674,6 +972,7 @@ export default function Home() {
     const { data: listener } = authClient.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
         setPasswordRecovery(true);
+        setActiveSystem("requests");
         setView("login");
       }
       setAuthEmail(session?.user.email ?? null);
@@ -693,6 +992,7 @@ export default function Home() {
     if (!isSupabaseConfigured || authLoading || !dataLoaded) return;
     if (!authEmail) {
       setCurrentUserId(null);
+      setActiveSystem("requests");
       setView("login");
       setAuthNotice("");
       return;
@@ -701,6 +1001,7 @@ export default function Home() {
     const approvedUser = users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active);
     if (!approvedUser) {
       setCurrentUserId(null);
+      setActiveSystem("requests");
       setView("login");
       setAuthNotice(`המייל ${authEmail} מחובר ב-Supabase אבל לא מוגדר כמשתמש פעיל במערכת. פנו לאדמין.`);
       return;
@@ -708,20 +1009,25 @@ export default function Home() {
 
     setAuthNotice("");
     setCurrentUserId(approvedUser.id);
-    setView((currentView) => currentView === "login" ? (approvedUser.role === "staff" ? "myRequests" : "manageRequests") : currentView);
+    setView((currentView) => currentView === "login" ? defaultViewForSystem("requests", approvedUser.role) : currentView);
+    setActiveSystem((currentSystem) => availableSystemsForRole(approvedUser.role).includes(currentSystem) ? currentSystem : "requests");
   }, [authEmail, authLoading, dataLoaded, users]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
 
     async function loadData() {
-      const [usersResult, studentsResult, requestsResult, contactColumnsResult, handlerColumnResult, treatmentUpdatesResult] = await Promise.all([
+      const [usersResult, studentsResult, requestsResult, contactColumnsResult, handlerColumnResult, treatmentUpdatesResult, devicesResult, loansResult, maintenanceResult, availabilityResult] = await Promise.all([
         supabase!.from("app_users").select("*").order("id"),
         supabase!.from("students").select("*").order("full_name"),
         supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
         supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1),
         supabase!.from("tech_requests").select("handler_id").limit(1),
-        supabase!.from("request_treatment_updates").select("*").order("created_at", { ascending: true })
+        supabase!.from("request_treatment_updates").select("*").order("created_at", { ascending: true }),
+        supabase!.from("school_devices").select("*").order("name"),
+        supabase!.from("school_device_loans").select("*").order("checked_out_at", { ascending: false }),
+        supabase!.from("school_device_maintenance").select("*").order("created_at", { ascending: false }),
+        supabase!.from("school_device_availability_blocks").select("*").order("day_of_week")
       ]);
 
       if (usersResult.error || studentsResult.error || requestsResult.error) {
@@ -733,10 +1039,15 @@ export default function Home() {
       setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
       setRequestHandlerSupported(!handlerColumnResult.error);
       setTreatmentLogSupported(!treatmentUpdatesResult.error);
+      setEquipmentSupported(!devicesResult.error && !loansResult.error && !maintenanceResult.error && !availabilityResult.error);
       setUsers((usersResult.data ?? []).map(mapUser));
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
       setTreatmentUpdates(treatmentUpdatesResult.error ? [] : (treatmentUpdatesResult.data ?? []).map(mapTreatmentUpdate));
+      if (!devicesResult.error) setSchoolDevices((devicesResult.data ?? []).map(mapSchoolDevice));
+      if (!loansResult.error) setDeviceLoans((loansResult.data ?? []).map(mapDeviceLoan));
+      if (!maintenanceResult.error) setDeviceMaintenance((maintenanceResult.data ?? []).map(mapDeviceMaintenance));
+      if (!availabilityResult.error) setDeviceAvailabilityBlocks((availabilityResult.data ?? []).map(mapDeviceAvailabilityBlock));
       setSelectedRequestId(null);
       setDataLoaded(true);
       showToast("הנתונים נטענו מהדאטה בייס.");
@@ -1149,6 +1460,181 @@ export default function Home() {
     showToast(`${data?.length ?? 0} תלמידים נשמרו בדאטה בייס.`);
   }
 
+
+  async function createSchoolDevice(device: SchoolDevice) {
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      setSchoolDevices((items) => [...items, device]);
+      showToast(equipmentSupported ? "המכשיר נוסף לרשימת הציוד." : "המכשיר נוסף מקומית. צריך להריץ SQL לציוד כדי לשמור בדאטה בייס.");
+      return;
+    }
+
+    const { data, error } = await supabase.from("school_devices").insert(schoolDevicePayload(device)).select("*").single();
+    if (error) {
+      showToast("שמירת המכשיר בדאטה בייס נכשלה.");
+      return;
+    }
+    setSchoolDevices((items) => [...items, mapSchoolDevice(data)]);
+    showToast("המכשיר נשמר בדאטה בייס.");
+  }
+
+  async function checkoutSchoolDevice(device: SchoolDevice, borrowerId: number, note: string, expectedReturn?: string) {
+    if (!currentUser) return;
+    if (device.status !== "available") {
+      showToast("המכשיר לא זמין להשאלה כרגע.");
+      return;
+    }
+
+    const borrower = users.find((user) => user.id === borrowerId && user.active) ?? currentUser;
+    const nowIso = new Date().toISOString();
+    const loan: DeviceLoan = {
+      id: Date.now(),
+      deviceId: device.id,
+      borrowerId: borrower.id,
+      checkedOutAt: displayDateTime(nowIso),
+      checkedOutAtIso: nowIso,
+      expectedReturn: expectedReturn || undefined,
+      checkoutNote: note || undefined,
+      status: "open"
+    };
+    const updatedDevice = { ...device, status: "checked_out" as SchoolDeviceStatus, location: borrower.name };
+
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      setDeviceLoans((items) => [loan, ...items]);
+      setSchoolDevices((items) => items.map((item) => item.id === device.id ? updatedDevice : item));
+      showToast(equipmentSupported ? `המכשיר נרשם על שם ${borrower.name}.` : `המכשיר נרשם על שם ${borrower.name} מקומית. צריך להריץ SQL לציוד כדי לשמור בדאטה בייס.`);
+      return;
+    }
+
+    const { data: loanData, error: loanError } = await supabase.from("school_device_loans").insert(deviceLoanPayload(loan)).select("*").single();
+    if (loanError) {
+      showToast("רישום ההשאלה נכשל.");
+      return;
+    }
+
+    const { data: deviceData, error: deviceError } = await supabase.from("school_devices").update(schoolDevicePayload(updatedDevice)).eq("id", device.id).select("*").single();
+    if (deviceError) {
+      showToast("ההשאלה נרשמה, אבל עדכון מצב המכשיר נכשל.");
+      setDeviceLoans((items) => [mapDeviceLoan(loanData), ...items]);
+      return;
+    }
+
+    setDeviceLoans((items) => [mapDeviceLoan(loanData), ...items]);
+    setSchoolDevices((items) => items.map((item) => item.id === device.id ? mapSchoolDevice(deviceData) : item));
+    showToast(`המכשיר נרשם על שם ${borrower.name}.`);
+  }
+
+  async function createDeviceAvailabilityBlock(block: DeviceAvailabilityBlock) {
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      setDeviceAvailabilityBlocks((items) => [...items, block]);
+      showToast(equipmentSupported ? "סגירת הזמינות נשמרה." : "סגירת הזמינות נשמרה מקומית. צריך להריץ SQL לציוד כדי לשמור בדאטה בייס.");
+      return;
+    }
+
+    const { data, error } = await supabase.from("school_device_availability_blocks").insert(deviceAvailabilityBlockPayload(block)).select("*").single();
+    if (error) {
+      showToast("שמירת סגירת הזמינות נכשלה.");
+      return;
+    }
+    setDeviceAvailabilityBlocks((items) => [...items, mapDeviceAvailabilityBlock(data)]);
+    showToast("סגירת הזמינות נשמרה בדאטה בייס.");
+  }
+
+  async function returnSchoolDevice(loan: DeviceLoan, returnNote: string) {
+    if (!currentUser) return;
+    const device = schoolDevices.find((item) => item.id === loan.deviceId);
+    if (!device) return;
+    const trimmedNote = returnNote.trim();
+    const nowIso = new Date().toISOString();
+    const returnedLoan: DeviceLoan = {
+      ...loan,
+      returnedAt: displayDateTime(nowIso),
+      returnedAtIso: nowIso,
+      returnNote: trimmedNote || undefined,
+      status: "returned"
+    };
+    const shouldOpenMaintenance = Boolean(trimmedNote);
+    const updatedDevice = {
+      ...device,
+      status: "available" as SchoolDeviceStatus,
+      location: "ארון תקשוב"
+    };
+    const maintenanceItem: DeviceMaintenance | null = shouldOpenMaintenance ? {
+      id: Date.now() + 1,
+      deviceId: device.id,
+      loanId: loan.id,
+      reporterId: currentUser.id,
+      note: trimmedNote,
+      status: "open",
+      createdAt: displayDateTime(nowIso),
+      createdAtIso: nowIso
+    } : null;
+
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      setDeviceLoans((items) => items.map((item) => item.id === loan.id ? returnedLoan : item));
+      setSchoolDevices((items) => items.map((item) => item.id === device.id ? updatedDevice : item));
+      if (maintenanceItem) setDeviceMaintenance((items) => [maintenanceItem, ...items]);
+      showToast(maintenanceItem ? "המכשיר הוחזר, נשאר זמין ונפתחה הערה לתחזוקה." : "המכשיר הוחזר וזמין להשאלה.");
+      return;
+    }
+
+    const { data: loanData, error: loanError } = await supabase.from("school_device_loans").update(deviceLoanPayload(returnedLoan)).eq("id", loan.id).select("*").single();
+    if (loanError) {
+      showToast("רישום ההחזרה נכשל.");
+      return;
+    }
+
+    const { data: deviceData, error: deviceError } = await supabase.from("school_devices").update(schoolDevicePayload(updatedDevice)).eq("id", device.id).select("*").single();
+    if (deviceError) {
+      showToast("ההחזרה נרשמה, אבל עדכון מצב המכשיר נכשל.");
+      return;
+    }
+
+    let savedMaintenance: DeviceMaintenance | null = null;
+    if (maintenanceItem) {
+      const { data, error } = await supabase.from("school_device_maintenance").insert(deviceMaintenancePayload(maintenanceItem)).select("*").single();
+      if (!error && data) savedMaintenance = mapDeviceMaintenance(data);
+    }
+
+    setDeviceLoans((items) => items.map((item) => item.id === loan.id ? mapDeviceLoan(loanData) : item));
+    setSchoolDevices((items) => items.map((item) => item.id === device.id ? mapSchoolDevice(deviceData) : item));
+    if (savedMaintenance) setDeviceMaintenance((items) => [savedMaintenance, ...items]);
+    showToast(savedMaintenance ? "המכשיר הוחזר, נשאר זמין ונפתחה הערה לתחזוקה." : "המכשיר הוחזר וזמין להשאלה.");
+  }
+
+  async function updateDeviceMaintenance(item: DeviceMaintenance, status: MaintenanceStatus, deviceStatus?: SchoolDeviceStatus) {
+    const updated: DeviceMaintenance = {
+      ...item,
+      status,
+      handlerId: currentUser?.id ?? item.handlerId,
+      closedAt: status === "closed" ? new Date().toISOString() : undefined
+    };
+    const device = schoolDevices.find((entry) => entry.id === item.deviceId);
+    const updatedDevice = deviceStatus && device ? {
+      ...device,
+      status: deviceStatus,
+      location: deviceStatus === "available" ? "ארון תקשוב" : "ממתין לבדיקת צוות טכנולוגיה"
+    } : null;
+
+    if (!isSupabaseConfigured || !supabase || !equipmentSupported) {
+      setDeviceMaintenance((items) => items.map((entry) => entry.id === item.id ? updated : entry));
+      if (updatedDevice) setSchoolDevices((items) => items.map((entry) => entry.id === updatedDevice.id ? updatedDevice : entry));
+      showToast(deviceStatus === "repair" ? "המכשיר הוצא מזמינות והתחזוקה נשארה פתוחה." : status === "closed" ? "משימת התחזוקה נסגרה והמכשיר זמין." : "סטטוס התחזוקה עודכן.");
+      return;
+    }
+
+    const { data, error } = await supabase.from("school_device_maintenance").update(deviceMaintenancePayload(updated)).eq("id", item.id).select("*").single();
+    if (error) {
+      showToast("עדכון התחזוקה נכשל.");
+      return;
+    }
+    setDeviceMaintenance((items) => items.map((entry) => entry.id === item.id ? mapDeviceMaintenance(data) : entry));
+    if (updatedDevice) {
+      const { data: deviceData } = await supabase.from("school_devices").update(schoolDevicePayload(updatedDevice)).eq("id", updatedDevice.id).select("*").single();
+      if (deviceData) setSchoolDevices((items) => items.map((entry) => entry.id === updatedDevice.id ? mapSchoolDevice(deviceData) : entry));
+    }
+    showToast(deviceStatus === "repair" ? "המכשיר הוצא מזמינות והתחזוקה נשארה פתוחה." : status === "closed" ? "משימת התחזוקה נסגרה והמכשיר זמין." : "סטטוס התחזוקה עודכן.");
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -1156,8 +1642,8 @@ export default function Home() {
           <div className="brand-mark">
             <img src="/mashi-logo.png" alt="בית ספר משי" />
           </div>
-          <h1>בקשות טכנולוגיה מסייעת</h1>
-          <p>ניהול פניות צוות לבית ספר משי</p>
+          <h1>פורטל טכנולוגיה מסייעת</h1>
+          <p>בקשות עבור ציוד תלמידים, שימוש בציוד בית ספרי וניהול מערכת במקום אחד.</p>
           <div className="brand-dots" aria-hidden="true">
             <span className="dot-yellow" />
             <span className="dot-lime" />
@@ -1167,18 +1653,21 @@ export default function Home() {
         </div>
 
         {isAuthenticated ? (
-          <nav className="nav-list" aria-label="ניווט ראשי">
-            {navByRole[role].map((item) => (
-              <button
-                key={item.view}
-                className={`nav-button ${view === item.view ? "active" : ""}`}
-                onClick={() => navigate(item.view)}
-              >
-                <span>{item.label}</span>
-                <span aria-hidden="true">›</span>
-              </button>
-            ))}
-          </nav>
+          <>
+            <div className="portal-switcher" aria-label="בחירת מערכת">
+              {availableSystems.map((system) => (
+                <button
+                  key={system}
+                  className={`portal-switch-button ${activeSystem === system ? "active" : ""}`}
+                  type="button"
+                  onClick={() => switchSystem(system)}
+                >
+                  <strong>{systemLabels[system].title}</strong>
+                  <span>{systemLabels[system].subtitle}</span>
+                </button>
+              ))}
+            </div>
+          </>
         ) : (
           <nav className="nav-list" aria-label="ניווט ראשי">
             <button className="nav-button active" onClick={() => navigate("login")}>
@@ -1216,16 +1705,16 @@ export default function Home() {
 
       {isAuthenticated && (
         <nav className="mobile-bottom-nav" aria-label="ניווט ראשי במובייל">
-          {navByRole[role].map((item) => (
+          {availableSystems.map((system) => (
             <button
-              key={item.view}
-              className={`mobile-bottom-button ${view === item.view ? "active" : ""}`}
+              key={system}
+              className={`mobile-bottom-button ${activeSystem === system ? "active" : ""}`}
               type="button"
-              onClick={() => navigate(item.view)}
-              aria-current={view === item.view ? "page" : undefined}
+              onClick={() => switchSystem(system)}
+              aria-current={activeSystem === system ? "page" : undefined}
             >
-              <MobileNavIcon view={item.view} />
-              <span>{item.mobileLabel}</span>
+              <MobileSystemIcon system={system} />
+              <span>{systemLabels[system].mobileLabel}</span>
             </button>
           ))}
         </nav>
@@ -1233,6 +1722,29 @@ export default function Home() {
 
       <section className="main">
         {toast && <div className="toast">{toast}</div>}
+        {isAuthenticated && view !== "login" && (
+          <div className="portal-context-bar">
+            <div>
+              <span className="section-kicker">{systemLabels[activeSystem].title}</span>
+              <p>{systemLabels[activeSystem].subtitle}</p>
+            </div>
+            <div className="portal-view-tabs" aria-label={`מסכים בתוך ${systemLabels[activeSystem].title}`}>
+              {activeSystemNav.map((item) => {
+                const isActive = item.equipmentPage ? view === item.view && equipmentPage === item.equipmentPage : view === item.view;
+                return (
+                  <button
+                    key={`${item.view}-${item.equipmentPage ?? "main"}`}
+                    className={isActive ? "active" : ""}
+                    type="button"
+                    onClick={() => navigatePortalItem(item)}
+                  >
+                    {item.mobileLabel}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {view === "login" && (
           <LoginScreen
@@ -1298,6 +1810,23 @@ export default function Home() {
             onAddTreatmentUpdate={addTreatmentUpdate}
           />
         )}
+        {view === "equipment" && currentUser && (
+          <EquipmentHub
+            devices={schoolDevices}
+            loans={deviceLoans}
+            maintenance={deviceMaintenance}
+            users={users}
+            currentUser={currentUser}
+            canManage={canManage}
+            onCreateDevice={createSchoolDevice}
+            availabilityBlocks={deviceAvailabilityBlocks}
+            onCheckout={checkoutSchoolDevice}
+            onReturn={returnSchoolDevice}
+            onCreateAvailabilityBlock={createDeviceAvailabilityBlock}
+            equipmentPage={equipmentPage}
+            onUpdateMaintenance={updateDeviceMaintenance}
+          />
+        )}
         {view === "users" && role === "admin" && currentUser && (
           <UsersAdmin
             users={users}
@@ -1322,6 +1851,34 @@ export default function Home() {
   );
 }
 
+function MobileSystemIcon({ system }: { system: PortalSystem }) {
+  if (system === "equipment") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 7h12v11H6z" />
+        <path d="M9 4h6" />
+        <path d="M10 20h4" />
+      </svg>
+    );
+  }
+
+  if (system === "admin") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
+        <path d="M4 12h2M18 12h2M12 4v2M12 18v2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 4h10v16H7z" />
+      <path d="M9.5 8h5M9.5 12h5M9.5 16h3" />
+    </svg>
+  );
+}
+
 function MobileNavIcon({ view }: { view: View }) {
   if (view === "updates") {
     return (
@@ -1339,6 +1896,16 @@ function MobileNavIcon({ view }: { view: View }) {
     return (
       <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 6h14M5 12h14M5 18h8" />
+      </svg>
+    );
+  }
+
+  if (view === "equipment") {
+    return (
+      <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 7h12v11H6z" />
+        <path d="M9 4h6" />
+        <path d="M10 20h4" />
       </svg>
     );
   }
@@ -1633,6 +2200,477 @@ function RecentUpdates({
           )}
         </div>
       </section>
+    </>
+  );
+}
+
+function EquipmentHub({
+  devices,
+  loans,
+  maintenance,
+  availabilityBlocks,
+  users,
+  currentUser,
+  canManage,
+  onCreateDevice,
+  onCheckout,
+  onReturn,
+  onCreateAvailabilityBlock,
+  equipmentPage,
+  onUpdateMaintenance
+}: {
+  devices: SchoolDevice[];
+  loans: DeviceLoan[];
+  maintenance: DeviceMaintenance[];
+  availabilityBlocks: DeviceAvailabilityBlock[];
+  users: User[];
+  currentUser: User;
+  canManage: boolean;
+  onCreateDevice: (device: SchoolDevice) => void | Promise<void>;
+  onCheckout: (device: SchoolDevice, borrowerId: number, note: string, expectedReturn?: string) => void | Promise<void>;
+  onReturn: (loan: DeviceLoan, returnNote: string) => void | Promise<void>;
+  onCreateAvailabilityBlock: (block: DeviceAvailabilityBlock) => void | Promise<void>;
+  equipmentPage: EquipmentPage;
+  onUpdateMaintenance: (item: DeviceMaintenance, status: MaintenanceStatus, deviceStatus?: SchoolDeviceStatus) => void | Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [deviceType, setDeviceType] = useState<SchoolDeviceType>("אייפד");
+  const [serialNumber, setSerialNumber] = useState("");
+  const [deviceNotes, setDeviceNotes] = useState("");
+  const [filter, setFilter] = useState<"all" | SchoolDeviceStatus>("all");
+  const [checkoutDevice, setCheckoutDevice] = useState<SchoolDevice | null>(null);
+  const [checkoutNote, setCheckoutNote] = useState("");
+  const [expectedReturn, setExpectedReturn] = useState("");
+  const [checkoutBorrowerId, setCheckoutBorrowerId] = useState(currentUser.id);
+  const [returnLoan, setReturnLoan] = useState<DeviceLoan | null>(null);
+  const [returnNote, setReturnNote] = useState("");
+  const [blockDeviceId, setBlockDeviceId] = useState(devices[0]?.id ?? 0);
+  const [blockDayOfWeek, setBlockDayOfWeek] = useState(0);
+  const [blockStartTime, setBlockStartTime] = useState("08:00");
+  const [blockEndTime, setBlockEndTime] = useState("09:00");
+  const [blockNote, setBlockNote] = useState("");
+  const activeLoans = loans.filter((loan) => loan.status === "open");
+  const manageableLoans = canManage ? activeLoans : activeLoans.filter((loan) => loan.borrowerId === currentUser.id);
+  const openMaintenance = maintenance.filter((item) => item.status !== "closed");
+  const maintenanceLog = maintenance
+    .slice()
+    .sort((first, second) => (parseDateValue(second.createdAtIso ?? second.createdAt)?.getTime() ?? 0) - (parseDateValue(first.createdAtIso ?? first.createdAt)?.getTime() ?? 0));
+  const visibleDevices = devices.filter((device) => device.active && (filter === "all" || device.status === filter));
+  const activeUsers = users.filter((user) => user.active);
+  const activeAvailabilityBlocks = availabilityBlocks.filter((block) => block.active);
+
+  const counts = {
+    available: devices.filter((device) => device.active && device.status === "available").length,
+    checkedOut: devices.filter((device) => device.active && device.status === "checked_out").length,
+    repair: devices.filter((device) => device.active && device.status === "repair").length,
+    total: devices.filter((device) => device.active).length
+  };
+
+  function borrowerName(deviceId: number) {
+    const loan = activeLoans.find((item) => item.deviceId === deviceId);
+    return users.find((user) => user.id === loan?.borrowerId)?.name ?? "לא ידוע";
+  }
+
+  function openCheckout(device: SchoolDevice) {
+    setCheckoutDevice(device);
+    setCheckoutBorrowerId(currentUser.id);
+    setCheckoutNote("");
+    setExpectedReturn("");
+    setCheckoutBorrowerId(currentUser.id);
+  }
+
+  function openReturn(loan: DeviceLoan) {
+    setReturnLoan(loan);
+    setReturnNote("");
+  }
+
+  function closeEquipmentModal() {
+    setCheckoutDevice(null);
+    setCheckoutNote("");
+    setExpectedReturn("");
+    setReturnLoan(null);
+    setReturnNote("");
+  }
+
+  async function submitCheckout(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!checkoutDevice) return;
+    await onCheckout(checkoutDevice, checkoutBorrowerId, checkoutNote.trim(), expectedReturn.trim() || undefined);
+    closeEquipmentModal();
+  }
+
+  async function submitReturn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!returnLoan) return;
+    await onReturn(returnLoan, returnNote.trim());
+    closeEquipmentModal();
+  }
+
+  function submitDevice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    onCreateDevice({
+      id: Date.now(),
+      name: name.trim(),
+      deviceType,
+      serialNumber: serialNumber.trim() || undefined,
+      location: "ארון תקשוב",
+      status: "available",
+      notes: deviceNotes.trim() || undefined,
+      active: true
+    });
+    setName("");
+    setSerialNumber("");
+    setDeviceNotes("");
+  }
+
+  function submitAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!blockDeviceId || !blockStartTime || !blockEndTime) return;
+    onCreateAvailabilityBlock({
+      id: Date.now(),
+      deviceId: blockDeviceId,
+      dayOfWeek: blockDayOfWeek,
+      startTime: blockStartTime,
+      endTime: blockEndTime,
+      note: blockNote.trim() || undefined,
+      active: true
+    });
+    setBlockNote("");
+  }
+
+  function activeBlockForDevice(deviceId: number) {
+    return activeAvailabilityBlocks.find((block) => block.deviceId === deviceId && isAvailabilityBlockActive(block));
+  }
+
+  return (
+    <>
+      <Topbar
+        title="ציוד בית ספרי"
+        subtitle="השאלה, החזרה ותחזוקה של מכשירים משותפים של צוות טכנולוגיה מסייעת. ציוד אישי של תלמידים נשאר במערכת הבקשות."
+      />
+
+      <div className="equipment-summary-grid" aria-label="תקציר ציוד בית ספרי">
+        <button className={`equipment-summary-card tone-available ${filter === "available" ? "active" : ""}`} type="button" onClick={() => setFilter(filter === "available" ? "all" : "available")}>
+          <strong>{counts.available}</strong>
+          <span>זמינים להשאלה</span>
+        </button>
+        <button className={`equipment-summary-card tone-loaned ${filter === "checked_out" ? "active" : ""}`} type="button" onClick={() => setFilter(filter === "checked_out" ? "all" : "checked_out")}>
+          <strong>{counts.checkedOut}</strong>
+          <span>מושאלים עכשיו</span>
+        </button>
+        <button className={`equipment-summary-card tone-repair ${filter === "repair" ? "active" : ""}`} type="button" onClick={() => setFilter(filter === "repair" ? "all" : "repair")}>
+          <strong>{counts.repair}</strong>
+          <span>דורשים תחזוקה</span>
+        </button>
+        <button className={`equipment-summary-card ${filter === "all" ? "active" : ""}`} type="button" onClick={() => setFilter("all")}>
+          <strong>{counts.total}</strong>
+          <span>סה״כ ציוד פעיל</span>
+        </button>
+      </div>
+
+      {equipmentPage === "devices" && (
+        <section className="panel equipment-device-panel">
+          <div className="panel-header">
+            <div>
+              <h3>מכשירים להשאלה</h3>
+              <p>רשימת הציוד הבית ספרי המשותף. ציוד אישי של תלמידים נשאר במערכת הבקשות.</p>
+            </div>
+          </div>
+          <div className="equipment-device-grid">
+            {visibleDevices.map((device) => {
+              const loan = activeLoans.find((item) => item.deviceId === device.id);
+              const isMine = loan?.borrowerId === currentUser.id;
+              const canReturnLoan = Boolean(loan && (isMine || canManage));
+              const activeBlock = activeBlockForDevice(device.id);
+              const isBlockedNow = Boolean(activeBlock);
+              return (
+                <article className={`equipment-device-card status-${isBlockedNow ? "blocked" : device.status}`} key={device.id}>
+                  <div className="equipment-card-topline">
+                    <span className={`equipment-status ${isBlockedNow ? "blocked" : device.status}`}>{isBlockedNow ? "סגור עכשיו" : schoolDeviceStatusLabels[device.status]}</span>
+                    <span>{device.deviceType}</span>
+                  </div>
+                  <strong>{device.name}</strong>
+                  <span className="equipment-meta">{device.serialNumber || "אין מספר סידורי"}</span>
+                  <p>{device.status === "checked_out" ? `נמצא אצל ${borrowerName(device.id)}` : device.location || "לא צוין מיקום"}</p>
+                  {activeBlock && <p className="equipment-note blocked">{formatAvailabilityBlock(activeBlock)}{activeBlock.note ? ` · ${activeBlock.note}` : ""}</p>}
+                  {device.notes && <p className="equipment-note">{device.notes}</p>}
+                  <div className="button-row compact-actions">
+                    {device.status === "available" && !isBlockedNow && <button className="btn primary" type="button" onClick={() => openCheckout(device)}>לקיחה</button>}
+                    {canReturnLoan && loan && <button className="btn" type="button" onClick={() => openReturn(loan)}>החזרה</button>}
+                    {(device.status !== "available" || isBlockedNow) && !canReturnLoan && <span className="equipment-muted-action">לא זמין כרגע</span>}
+                  </div>
+                </article>
+              );
+            })}
+            {!visibleDevices.length && <div className="empty soft-empty">אין מכשירים להצגה בסינון הזה.</div>}
+          </div>
+        </section>
+      )}
+
+      {equipmentPage === "mine" && (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>{canManage ? "השאלות פעילות" : "אצלי עכשיו"}</h3>
+              <p>{canManage ? "ציוד בית ספרי שמושאל כרגע לכל אנשי הצוות, כולל החזרה בשם אחרים." : "ציוד בית ספרי שרשום כרגע על המשתמשת שלך."}</p>
+            </div>
+            <span className="section-count">{manageableLoans.length}</span>
+          </div>
+          <div className="panel-body equipment-loan-list equipment-list-wide">
+            {manageableLoans.length ? manageableLoans.map((loan) => {
+              const device = devices.find((item) => item.id === loan.deviceId);
+              const borrower = users.find((user) => user.id === loan.borrowerId);
+              return (
+                <article className="equipment-loan-card" key={loan.id}>
+                  <strong>{device?.name ?? "מכשיר"}</strong>
+                  <span>אצל: {borrower?.name ?? "לא ידוע"}</span>
+                  <span>נלקח: {loan.checkedOutAt}</span>
+                  {loan.expectedReturn && <span>צפי החזרה: {loan.expectedReturn}</span>}
+                  {loan.checkoutNote && <p>{loan.checkoutNote}</p>}
+                  <button className="btn" type="button" onClick={() => openReturn(loan)}>החזרה</button>
+                </article>
+              );
+            }) : <div className="empty compact">{canManage ? "אין ציוד מושאל כרגע." : "אין אצלך ציוד מושאל כרגע."}</div>}
+          </div>
+        </section>
+      )}
+
+      {equipmentPage === "maintenance" && canManage && (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>תחזוקה פתוחה</h3>
+              <p>הערות החזרה ותקלות שעדיין דורשות טיפול.</p>
+            </div>
+            <span className="section-count">{openMaintenance.length}</span>
+          </div>
+          <div className="panel-body equipment-maintenance-list equipment-list-wide">
+            {openMaintenance.length ? openMaintenance.map((item) => {
+              const device = devices.find((entry) => entry.id === item.deviceId);
+              const reporter = users.find((user) => user.id === item.reporterId);
+              return (
+                <article className="equipment-maintenance-card" key={item.id}>
+                  <div>
+                    <strong>{device?.name ?? "מכשיר"}</strong>
+                    <span>{maintenanceStatusLabels[item.status]} · {item.createdAt}</span>
+                  </div>
+                  <p>{item.note}</p>
+                  {reporter && <span className="equipment-meta">דווח על ידי {reporter.name}</span>}
+                  <div className="button-row compact-actions">
+                    <button className="btn primary" type="button" onClick={() => onUpdateMaintenance(item, "closed", "available")}>להשאיר זמין ולסגור</button>
+                    <button className="btn danger" type="button" onClick={() => onUpdateMaintenance(item, "progress", "repair")}>להוציא מזמינות</button>
+                    {item.status === "open" && <button className="btn" type="button" onClick={() => onUpdateMaintenance(item, "progress")}>רק לסמן בטיפול</button>}
+                  </div>
+                </article>
+              );
+            }) : <div className="empty compact">אין משימות תחזוקה פתוחות.</div>}
+          </div>
+        </section>
+      )}
+
+      {equipmentPage === "log" && canManage && (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>יומן אירועי תחזוקה</h3>
+              <p>כל אירועי התחזוקה שנפתחו מהחזרות או נרשמו ידנית.</p>
+            </div>
+            <span className="section-count">{maintenanceLog.length}</span>
+          </div>
+          <div className="panel-body equipment-maintenance-list equipment-list-wide">
+            {maintenanceLog.length ? maintenanceLog.map((item) => {
+              const device = devices.find((entry) => entry.id === item.deviceId);
+              const reporter = users.find((user) => user.id === item.reporterId);
+              const handler = users.find((user) => user.id === item.handlerId);
+              return (
+                <article className="equipment-maintenance-card" key={item.id}>
+                  <div>
+                    <strong>{device?.name ?? "מכשיר"}</strong>
+                    <span>{maintenanceStatusLabels[item.status]} · {item.createdAt}</span>
+                  </div>
+                  <p>{item.note}</p>
+                  <span className="equipment-meta">
+                    {reporter ? `דיווח: ${reporter.name}` : "דיווח: לא ידוע"}
+                    {handler ? ` · טיפול: ${handler.name}` : ""}
+                    {item.closedAt ? ` · נסגר: ${item.closedAt}` : ""}
+                  </span>
+                </article>
+              );
+            }) : <div className="empty compact">אין עדיין אירועי תחזוקה ביומן.</div>}
+          </div>
+        </section>
+      )}
+
+      {equipmentPage === "manage" && currentUser.role === "admin" && (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>ניהול מכשירים</h3>
+              <p>הוספת ציוד בית ספרי לרשימת ההשאלה.</p>
+            </div>
+          </div>
+          <div className="panel-body equipment-management-grid">
+            <div className="equipment-management-forms">
+              <form className="equipment-add-form" onSubmit={submitDevice}>
+                <strong className="equipment-form-title">הוספת מכשיר</strong>
+                <div className="field">
+                  <label htmlFor="schoolDeviceName">שם מכשיר</label>
+                  <input id="schoolDeviceName" value={name} onChange={(event) => setName(event.target.value)} placeholder="לדוגמה: אייפד 04" />
+                </div>
+                <div className="field">
+                  <label htmlFor="schoolDeviceType">סוג</label>
+                  <select id="schoolDeviceType" value={deviceType} onChange={(event) => setDeviceType(event.target.value as SchoolDeviceType)}>
+                    {schoolDeviceTypes.map((type) => <option key={type}>{type}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="schoolDeviceSerial">מספר סידורי</label>
+                  <input id="schoolDeviceSerial" value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="schoolDeviceNotes">הערות</label>
+                  <textarea id="schoolDeviceNotes" value={deviceNotes} onChange={(event) => setDeviceNotes(event.target.value)} />
+                </div>
+                <button className="btn primary" type="submit">הוספת מכשיר</button>
+              </form>
+
+              <form className="equipment-add-form" onSubmit={submitAvailabilityBlock}>
+                <strong className="equipment-form-title">סגירת זמינות קבועה</strong>
+                <div className="field">
+                  <label htmlFor="blockDevice">מכשיר</label>
+                  <select id="blockDevice" value={blockDeviceId} onChange={(event) => setBlockDeviceId(Number(event.target.value))}>
+                    {devices.filter((device) => device.active).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="blockDay">יום</label>
+                  <select id="blockDay" value={blockDayOfWeek} onChange={(event) => setBlockDayOfWeek(Number(event.target.value))}>
+                    {hebrewWeekdays.map((day, index) => <option key={day} value={index}>{day}</option>)}
+                  </select>
+                </div>
+                <div className="form-grid compact-time-grid">
+                  <div className="field">
+                    <label htmlFor="blockStart">משעה</label>
+                    <input id="blockStart" type="time" value={blockStartTime} onChange={(event) => setBlockStartTime(event.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="blockEnd">עד שעה</label>
+                    <input id="blockEnd" type="time" value={blockEndTime} onChange={(event) => setBlockEndTime(event.target.value)} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="blockNote">סיבה / הערה</label>
+                  <input id="blockNote" value={blockNote} onChange={(event) => setBlockNote(event.target.value)} placeholder="לדוגמה: שמור לשיעור קבוע" />
+                </div>
+                <button className="btn" type="submit">שמירת סגירה</button>
+              </form>
+            </div>
+
+            <div className="equipment-admin-device-list">
+              {devices.filter((device) => device.active).map((device) => {
+                const blocks = activeAvailabilityBlocks.filter((block) => block.deviceId === device.id);
+                return (
+                  <article className="equipment-loan-card" key={device.id}>
+                    <strong>{device.name}</strong>
+                    <span>{device.deviceType} · {schoolDeviceStatusLabels[device.status]}</span>
+                    <span>{device.serialNumber || "אין מספר סידורי"}</span>
+                    {blocks.length > 0 && (
+                      <div className="equipment-block-list">
+                        {blocks.map((block) => <span key={block.id}>{formatAvailabilityBlock(block)}{block.note ? ` · ${block.note}` : ""}</span>)}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {checkoutDevice && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`לקיחת ${checkoutDevice.name}`}>
+          <section className="modal equipment-action-modal">
+            <div className="panel-header">
+              <div>
+                <h3>לקיחת מכשיר</h3>
+                <p>{checkoutDevice.name} · {checkoutDevice.deviceType}</p>
+              </div>
+              <button className="btn" type="button" onClick={closeEquipmentModal}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <form className="form-grid" onSubmit={submitCheckout}>
+                {canManage && (
+                  <div className="field full">
+                    <label htmlFor="checkoutBorrower">נלקח עבור</label>
+                    <select id="checkoutBorrower" value={checkoutBorrowerId} onChange={(event) => setCheckoutBorrowerId(Number(event.target.value))}>
+                      {activeUsers.map((user) => (
+                        <option key={user.id} value={user.id}>{user.name} - {roleLabels[user.role]}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="field full">
+                  <label htmlFor="checkoutNote">לאיזו פעילות / כיתה המכשיר נלקח?</label>
+                  <textarea
+                    id="checkoutNote"
+                    value={checkoutNote}
+                    onChange={(event) => setCheckoutNote(event.target.value)}
+                    placeholder="לדוגמה: פעילות תקשורת בכיתה ד׳1"
+                  />
+                </div>
+                <div className="field full">
+                  <label htmlFor="expectedReturn">מתי צפויה החזרה?</label>
+                  <input
+                    id="expectedReturn"
+                    value={expectedReturn}
+                    onChange={(event) => setExpectedReturn(event.target.value)}
+                    placeholder="אפשר להשאיר ריק"
+                  />
+                </div>
+                <div className="field full button-row">
+                  <button className="btn" type="button" onClick={closeEquipmentModal}>ביטול</button>
+                  <button className="btn primary" type="submit">רישום לקיחה</button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {returnLoan && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="החזרת מכשיר">
+          <section className="modal equipment-action-modal">
+            <div className="panel-header">
+              <div>
+                <h3>החזרת מכשיר</h3>
+                <p>{devices.find((item) => item.id === returnLoan.deviceId)?.name ?? "מכשיר"}</p>
+              </div>
+              <button className="btn" type="button" onClick={closeEquipmentModal}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <form className="form-grid" onSubmit={submitReturn}>
+                <div className="field full">
+                  <label htmlFor="returnNote">יש הערות, תקלה או חוסר בציוד?</label>
+                  <textarea
+                    id="returnNote"
+                    value={returnNote}
+                    onChange={(event) => setReturnNote(event.target.value)}
+                    placeholder="אם הכל תקין אפשר להשאיר ריק. הערה תפתח משימת תחזוקה."
+                  />
+                </div>
+                <div className="equipment-modal-hint">
+                  הערה בהחזרה תעביר את המכשיר לתחזוקה עד שמטפל/ת או אדמין יסגרו אותה.
+                </div>
+                <div className="field full button-row">
+                  <button className="btn" type="button" onClick={closeEquipmentModal}>ביטול</button>
+                  <button className="btn primary" type="submit">רישום החזרה</button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

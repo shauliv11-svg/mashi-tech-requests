@@ -163,6 +163,91 @@ button {
   border-color: rgba(16, 42, 164, 0.18);
 }
 
+.portal-switcher {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.portal-switch-button {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(16, 42, 164, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text);
+  text-align: right;
+}
+
+.portal-switch-button strong {
+  color: var(--brand-deep);
+  font-size: 0.96rem;
+}
+
+.portal-switch-button span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.portal-switch-button.active,
+.portal-switch-button:hover {
+  border-color: rgba(85, 184, 231, 0.62);
+  background: #fff;
+  box-shadow: inset 4px 0 0 var(--brand);
+}
+
+.system-nav-list {
+  padding-top: 14px;
+  border-top: 1px solid rgba(16, 42, 164, 0.12);
+}
+
+.portal-context-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: var(--shadow-soft);
+}
+
+.portal-context-bar p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.portal-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.portal-view-tabs button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.portal-view-tabs button.active,
+.portal-view-tabs button:hover {
+  border-color: var(--brand);
+  color: var(--brand-deep);
+  background: #f5fbff;
+}
+
 .mobile-bottom-nav {
   display: none;
 }
@@ -678,8 +763,7 @@ body {
   }
 
   .sidebar {
-    padding: 14px 14px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    display: none;
   }
 
   .brand {
@@ -1120,6 +1204,33 @@ tbody tr:hover {
     flex: 1 1 130px;
   }
 
+
+  .equipment-action-modal {
+    width: 100%;
+    max-height: calc(100dvh - 28px);
+    margin-bottom: calc(86px + env(safe-area-inset-bottom));
+  }
+
+  .equipment-action-modal .panel-body {
+    max-height: calc(100dvh - 190px - env(safe-area-inset-bottom));
+    padding-bottom: 0;
+  }
+
+  .equipment-action-modal .button-row {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 4px -20px -20px;
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .equipment-action-modal .button-row .btn {
+    min-height: 52px;
+  }
+
   .panel {
     border-radius: 16px;
   }
@@ -1278,6 +1389,322 @@ tbody tr:hover {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+}
+
+.equipment-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.equipment-summary-card {
+  position: relative;
+  min-height: 104px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+  text-align: right;
+}
+
+.equipment-summary-card::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 16px;
+  top: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.equipment-summary-card.tone-available::after { background: var(--dot-lime); }
+.equipment-summary-card.tone-loaned::after { background: var(--dot-yellow); }
+.equipment-summary-card.tone-repair::after { background: var(--dot-coral); }
+
+.equipment-summary-card.active {
+  outline: 3px solid rgba(85, 184, 231, 0.18);
+  outline-offset: 2px;
+}
+
+.equipment-summary-card strong {
+  display: block;
+  color: var(--brand-deep);
+  font-size: 2rem;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+
+.equipment-summary-card span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.equipment-page-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.equipment-page-tabs button {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.equipment-page-tabs button strong {
+  min-width: 28px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-tint);
+  color: var(--brand-deep);
+  font-size: 0.86rem;
+}
+
+.equipment-page-tabs button.active,
+.equipment-page-tabs button:hover {
+  border-color: var(--brand);
+  background: #fff;
+  color: var(--brand-deep);
+}
+
+.equipment-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.7fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.equipment-device-panel .panel-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.equipment-device-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.equipment-device-card {
+  display: grid;
+  gap: 10px;
+  min-height: 218px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  box-shadow: var(--shadow-soft);
+}
+
+.equipment-card-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.equipment-device-card strong,
+.equipment-loan-card strong,
+.equipment-maintenance-card strong {
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.equipment-device-card p,
+.equipment-loan-card p,
+.equipment-maintenance-card p {
+  margin: 0;
+  color: #41556a;
+  line-height: 1.5;
+}
+
+.equipment-meta,
+.equipment-muted-action {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.equipment-note {
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+
+.equipment-note.blocked {
+  border: 1px solid color-mix(in srgb, var(--dot-yellow) 60%, white);
+  background: #fff8df;
+  color: #7a5200;
+}
+
+.equipment-status.blocked::before { background: var(--dot-yellow); }
+
+.equipment-management-forms {
+  display: grid;
+  gap: 14px;
+}
+
+.equipment-management-forms .equipment-add-form {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.equipment-form-title {
+  color: var(--brand-deep);
+  font-size: 1rem;
+}
+
+.compact-time-grid {
+  gap: 10px;
+}
+
+.equipment-block-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.equipment-block-list span {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.equipment-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.equipment-status::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.equipment-status.available::before { background: var(--dot-lime); }
+.equipment-status.checked_out::before { background: var(--dot-yellow); }
+.equipment-status.repair::before { background: var(--dot-coral); }
+.equipment-status.inactive::before { background: var(--muted); }
+
+.equipment-side-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.equipment-loan-list,
+.equipment-maintenance-list {
+  display: grid;
+  gap: 10px;
+}
+
+.equipment-list-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.equipment-management-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.55fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.equipment-admin-device-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.equipment-loan-card,
+.equipment-maintenance-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.equipment-maintenance-card div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.equipment-maintenance-card div:first-child span,
+.equipment-loan-card span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.equipment-add-form {
+  display: grid;
+  gap: 12px;
+}
+
+.equipment-add-form .btn {
+  justify-self: start;
+}
+
+.equipment-action-modal {
+  width: min(560px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.equipment-action-modal .panel-body {
+  overflow: auto;
+}
+
+.equipment-action-modal .panel-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.equipment-action-modal textarea {
+  min-height: 118px;
+}
+
+.equipment-modal-hint {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-weight: 800;
+  line-height: 1.45;
 }
 
 .staff-preview-summary div,
@@ -1664,8 +2091,23 @@ tbody tr:hover {
 @media (max-width: 720px) {
   .staff-overview,
   .staff-request-grid,
-  .staff-preview-summary {
+  .staff-preview-summary,
+  .equipment-summary-grid,
+  .equipment-layout,
+  .equipment-device-grid,
+  .equipment-list-wide,
+  .equipment-management-grid,
+  .equipment-admin-device-list {
     grid-template-columns: 1fr;
+  }
+
+  .portal-context-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .portal-view-tabs {
+    justify-content: flex-start;
   }
 
   .staff-overview-item {
