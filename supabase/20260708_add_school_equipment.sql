@@ -97,8 +97,8 @@ insert into school_devices (id, name, device_type, serial_number, location, stat
   (3, 'אייפד פרו 03', 'אייפד פרו', 'MSHI-PRO-03', 'חדר טיפול', 'repair', 'בדיקת עט ומקלדת', true)
 on conflict (id) do nothing;
 
-insert into school_device_maintenance (id, device_id, reporter_id, note, status, created_at) values
-  (1, 3, 2, 'בדיקה יזומה: לוודא שהעט נטען והמקלדת מתחברת.', 'open', '2026-06-24T12:00:00+03:00')
+insert into school_device_maintenance (id, device_id, note, status, created_at) values
+  (1, 3, 'בדיקה יזומה: לוודא שהעט נטען והמקלדת מתחברת.', 'open', '2026-06-24T12:00:00+03:00')
 on conflict (id) do nothing;
 
 select setval(pg_get_serial_sequence('school_devices', 'id'), (select coalesce(max(id), 1) from school_devices));
