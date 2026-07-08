@@ -7,7 +7,7 @@ type Role = "staff" | "handler" | "admin";
 type View = "login" | "myRequests" | "newRequest" | "manageRequests" | "updates" | "users" | "students";
 type SubjectType = "student" | "class";
 type RequestStatus = "new" | "progress" | "waiting" | "closed";
-type DeviceType = "מחשב" | "אייפד" | "מחשב מיקוד מבט" | "אייפד פרו";
+type DeviceType = "מחשב" | "אייפד" | "אייפד אייר" | "מחשב מיקוד מבט" | "אייפד פרו";
 type CareProvider = "משרד הבריאות" | "משרד החינוך";
 
 type Student = {
@@ -84,7 +84,7 @@ const requestTypes = [
   "אחר"
 ];
 
-const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "מחשב מיקוד מבט", "אייפד פרו"];
+const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "אייפד אייר", "מחשב מיקוד מבט", "אייפד פרו"];
 const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
 const studentImportHeaders = [
   "שם תלמיד/ה",
@@ -287,7 +287,7 @@ function formatClassList(classNames?: string[]) {
 }
 
 function isAppleDevice(deviceType?: DeviceType) {
-  return deviceType === "אייפד" || deviceType === "אייפד פרו";
+  return deviceType === "אייפד" || deviceType === "אייפד אייר" || deviceType === "אייפד פרו";
 }
 
 function normalizeDeviceType(value?: string): DeviceType | undefined {
