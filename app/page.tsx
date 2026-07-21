@@ -855,7 +855,7 @@ export default function Home() {
     setToast("");
   }
 
-  async function ensureApprovedEmail(email: string) {
+  async function findApprovedUserByEmail(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!supabase) {
@@ -863,40 +863,64 @@ export default function Home() {
       return null;
     }
 
-    const { data: approvedUsers, error: approvalError } = await supabase
+    const { data, error } = await supabase
       .from("app_users")
-      .select("id")
+      .select("*")
       .eq("email", normalizedEmail)
       .eq("active", true)
-      .limit(1);
+      .maybeSingle();
 
-    if (approvalError) {
+    if (error) {
       showToast("לא הצלחנו לבדוק הרשאות משתמשת. נסו שוב בעוד רגע.");
+      setAuthNotice("לא הצלחנו לבדוק הרשאות משתמשת. נסו שוב בעוד רגע.");
       return null;
     }
 
-    if (!approvedUsers?.length) {
-      showToast("המייל לא רשום במערכת או שהמשתמשת אינה פעילה. פנו לאדמין.");
+    if (!data) {
+      const message = `המייל ${normalizedEmail} לא רשום כמשתמש פעיל במערכת. פנו לאדמין.`;
+      showToast(message);
+      setAuthNotice(message);
       return null;
     }
 
-    return normalizedEmail;
+    return mapUser(data);
+  }
+
+  async function ensureApprovedEmail(email: string) {
+    const approvedUser = await findApprovedUserByEmail(email);
+    return approvedUser?.email.toLowerCase() ?? null;
+  }
+
+  function activateApprovedUser(user: User) {
+    setUsers((items) => {
+      const exists = items.some((item) => item.id === user.id || item.email.toLowerCase() === user.email.toLowerCase());
+      return exists
+        ? items.map((item) => item.id === user.id || item.email.toLowerCase() === user.email.toLowerCase() ? user : item)
+        : [...items, user];
+    });
+    setAuthNotice("");
+    setAuthEmail(user.email);
+    setCurrentUserId(user.id);
+    setActiveSystem("requests");
+    setView(defaultViewForSystem("requests", user.role));
   }
 
   async function signInWithPassword(email: string, password: string) {
-    const normalizedEmail = await ensureApprovedEmail(email);
-    if (!normalizedEmail || !supabase) return;
+    const approvedUser = await findApprovedUserByEmail(email);
+    if (!approvedUser || !supabase) return;
 
     const { error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
+      email: approvedUser.email.toLowerCase(),
       password
     });
 
     if (error) {
       showToast("הכניסה נכשלה. בדקו מייל וסיסמה, או הגדירו סיסמה חדשה.");
+      setAuthNotice("הכניסה נכשלה. בדקו מייל וסיסמה, או הגדירו סיסמה חדשה.");
       return;
     }
 
+    activateApprovedUser(approvedUser);
     showToast("נכנסת למערכת.");
   }
 
@@ -990,27 +1014,47 @@ export default function Home() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || authLoading || !dataLoaded) return;
-    if (!authEmail) {
-      setCurrentUserId(null);
-      setActiveSystem("requests");
-      setView("login");
+    let cancelled = false;
+
+    async function syncAuthenticatedUser() {
+      if (!authEmail) {
+        setCurrentUserId(null);
+        setActiveSystem("requests");
+        setView("login");
+        setAuthNotice("");
+        return;
+      }
+
+      const localApprovedUser = users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active);
+      const approvedUser = localApprovedUser ?? await findApprovedUserByEmail(authEmail);
+
+      if (cancelled) return;
+
+      if (!approvedUser) {
+        setCurrentUserId(null);
+        setActiveSystem("requests");
+        setView("login");
+        return;
+      }
+
+      if (!localApprovedUser) {
+        setUsers((items) => {
+          const exists = items.some((item) => item.id === approvedUser.id || item.email.toLowerCase() === approvedUser.email.toLowerCase());
+          return exists
+            ? items.map((item) => item.id === approvedUser.id || item.email.toLowerCase() === approvedUser.email.toLowerCase() ? approvedUser : item)
+            : [...items, approvedUser];
+        });
+      }
       setAuthNotice("");
-      return;
+      setCurrentUserId(approvedUser.id);
+      setView((currentView) => currentView === "login" ? defaultViewForSystem("requests", approvedUser.role) : currentView);
+      setActiveSystem((currentSystem) => availableSystemsForRole(approvedUser.role).includes(currentSystem) ? currentSystem : "requests");
     }
 
-    const approvedUser = users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active);
-    if (!approvedUser) {
-      setCurrentUserId(null);
-      setActiveSystem("requests");
-      setView("login");
-      setAuthNotice(`המייל ${authEmail} מחובר ב-Supabase אבל לא מוגדר כמשתמש פעיל במערכת. פנו לאדמין.`);
-      return;
-    }
-
-    setAuthNotice("");
-    setCurrentUserId(approvedUser.id);
-    setView((currentView) => currentView === "login" ? defaultViewForSystem("requests", approvedUser.role) : currentView);
-    setActiveSystem((currentSystem) => availableSystemsForRole(approvedUser.role).includes(currentSystem) ? currentSystem : "requests");
+    syncAuthenticatedUser();
+    return () => {
+      cancelled = true;
+    };
   }, [authEmail, authLoading, dataLoaded, users]);
 
   useEffect(() => {
