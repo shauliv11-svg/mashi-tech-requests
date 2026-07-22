@@ -1,6 +1,6 @@
 # Roadmap - Mashi Tech Requests
 
-Last updated: 2026-07-05
+Last updated: 2026-07-22
 
 ## Current Production State
 
@@ -103,6 +103,8 @@ Recent production commits:
 - The dark logo blue should not become the dominant app color.
 
 ## Database / Setup Notes
+
+- Daily Vercel Cron health check calls `/api/health` to verify Supabase responds.
 
 Run in Supabase if not already done:
 

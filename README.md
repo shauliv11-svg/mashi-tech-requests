@@ -95,3 +95,21 @@ EMAIL_REPLY_TO=your-reply-address@example.com
 ```
 
 Use a Google App Password, not the regular Gmail password.
+
+## Health check and daily keep-alive
+
+The app exposes a lightweight health endpoint:
+
+```text
+/api/health
+```
+
+It performs a minimal Supabase database read and returns only general status, for example:
+
+```json
+{ "ok": true, "database": "ok", "checkedAt": "2026-07-22T06:00:00.000Z" }
+```
+
+`vercel.json` registers a daily Vercel Cron Job that calls this endpoint once per day. On the Vercel Hobby plan, cron jobs are limited to once per day, which is enough for a basic availability check.
+
+After deployment, the cron can be viewed in Vercel Project Settings -> Cron Jobs.
