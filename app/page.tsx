@@ -1489,6 +1489,56 @@ export default function Home() {
     return true;
   }
 
+
+  async function deleteAllStudents() {
+    const studentIdsWithRequests = new Set(
+      requests.flatMap((request) => request.studentId ? [request.studentId] : [])
+    );
+    const studentsToDisable = students.filter((student) => studentIdsWithRequests.has(student.id));
+    const studentsToDelete = students.filter((student) => !studentIdsWithRequests.has(student.id));
+
+    if (!isSupabaseConfigured || !supabase) {
+      setStudents((items) => items
+        .filter((student) => studentIdsWithRequests.has(student.id))
+        .map((student) => ({ ...student, active: false }))
+      );
+      showToast(`${studentsToDelete.length} תלמידים נמחקו ו-${studentsToDisable.length} הושבתו כדי לשמור את היסטוריית הבקשות.`);
+      return true;
+    }
+
+    if (studentsToDisable.length) {
+      const { error } = await supabase
+        .from("students")
+        .update({ active: false })
+        .in("id", studentsToDisable.map((student) => student.id));
+      if (error) {
+        showToast("השבתת התלמידים עם היסטוריית בקשות נכשלה.");
+        return false;
+      }
+    }
+
+    if (studentsToDelete.length) {
+      const { error } = await supabase
+        .from("students")
+        .delete()
+        .in("id", studentsToDelete.map((student) => student.id));
+      if (error) {
+        setStudents((items) => items.map((student) => (
+          studentIdsWithRequests.has(student.id) ? { ...student, active: false } : student
+        )));
+        showToast("חלק מהתלמידים הושבתו, אבל מחיקת התלמידים ללא בקשות נכשלה.");
+        return false;
+      }
+    }
+
+    setStudents((items) => items
+      .filter((student) => studentIdsWithRequests.has(student.id))
+      .map((student) => ({ ...student, active: false }))
+    );
+    showToast(`${studentsToDelete.length} תלמידים נמחקו ו-${studentsToDisable.length} הושבתו כדי לשמור את היסטוריית הבקשות.`);
+    return true;
+  }
+
   async function restoreStudent(student: Student) {
     const restored = { ...student, active: true };
     if (!isSupabaseConfigured || !supabase) {
@@ -1966,6 +2016,7 @@ export default function Home() {
             onAdd={createStudent}
             onUpdate={updateStudent}
             onDelete={deleteStudent}
+            onDeleteAll={deleteAllStudents}
             onRestore={restoreStudent}
             onImport={importStudents}
           />
@@ -4162,6 +4213,7 @@ function StudentsAdmin({
   onAdd,
   onUpdate,
   onDelete,
+  onDeleteAll,
   onRestore,
   onImport
 }: {
@@ -4170,6 +4222,7 @@ function StudentsAdmin({
   onAdd: (student: Student) => void | Promise<void>;
   onUpdate: (student: Student) => void | Promise<void>;
   onDelete: (student: Student) => boolean | Promise<boolean>;
+  onDeleteAll: () => boolean | Promise<boolean>;
   onRestore: (student: Student) => void | Promise<void>;
   onImport: (students: Student[]) => void | Promise<void>;
 }) {
@@ -4192,6 +4245,7 @@ function StudentsAdmin({
   const [studentHistoryFilter, setStudentHistoryFilter] = useState<"all" | "repairs">("all");
   const [historyStudentId, setHistoryStudentId] = useState<number | null>(null);
   const [deleteStudentCandidate, setDeleteStudentCandidate] = useState<Student | null>(null);
+  const [deleteAllStudentsOpen, setDeleteAllStudentsOpen] = useState(false);
   const [studentFormOpen, setStudentFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -4216,6 +4270,11 @@ function StudentsAdmin({
   const studentsWithRepairs = useMemo(
     () => students.filter((student) => (studentRepairCounts.get(student.id) ?? 0) > 0).length,
     [studentRepairCounts, students]
+  );
+
+  const studentsWithRequests = useMemo(
+    () => students.filter((student) => (studentRequestCounts.get(student.id) ?? 0) > 0).length,
+    [studentRequestCounts, students]
   );
 
   const filteredStudents = useMemo(() => {
@@ -4352,6 +4411,7 @@ function StudentsAdmin({
   }
 
   function requestDeleteStudent(student: Student) {
+    setHistoryStudentId(null);
     setDeleteStudentCandidate(student);
   }
 
@@ -4371,6 +4431,15 @@ function StudentsAdmin({
     setHistoryStudentId(null);
   }
 
+  async function confirmDeleteAllStudents() {
+    const didDelete = await onDeleteAll();
+    if (!didDelete) return;
+    setDeleteAllStudentsOpen(false);
+    setDeleteStudentCandidate(null);
+    setHistoryStudentId(null);
+    closeStudentForm();
+  }
+
   return (
     <>
       <Topbar
@@ -4387,6 +4456,14 @@ function StudentsAdmin({
       <section className="panel students-directory-panel">
         <div className="panel-header">
           <h3>תלמידים</h3>
+          <button
+            className="btn danger subtle"
+            type="button"
+            onClick={() => setDeleteAllStudentsOpen(true)}
+            disabled={!students.length}
+          >
+            מחיקת כל התלמידים
+          </button>
         </div>
         <div className="panel-body compact-panel-body">
           <div className="student-search-tools">
@@ -4560,6 +4637,30 @@ function StudentsAdmin({
               <div className="button-row">
                 <button className="btn" type="button" onClick={() => setDeleteStudentCandidate(null)}>ביטול</button>
                 <button className="btn danger" type="button" onClick={confirmDeleteStudent}>{studentRequestCounts.get(deleteStudentCandidate.id) ? "השבתה" : "מחיקה"}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+
+      {deleteAllStudentsOpen && (
+        <div className="modal-backdrop destructive-confirm-backdrop" role="dialog" aria-modal="true" aria-label="מחיקת כל התלמידים">
+          <section className="modal destructive-confirm-modal">
+            <div className="panel-header">
+              <div>
+                <h3>מחיקת כל התלמידים</h3>
+                <p>הפעולה תחול על {students.length} רשומות תלמידים.</p>
+              </div>
+              <button className="btn" type="button" onClick={() => setDeleteAllStudentsOpen(false)}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <p className="modal-warning-text">
+                {students.length - studentsWithRequests} תלמידים ללא בקשות יימחקו. {studentsWithRequests} תלמידים עם בקשות יושבתו כדי לשמור את כל התיעוד, ויהיה אפשר להחזיר אותם לפעילות בהמשך.
+              </p>
+              <div className="button-row">
+                <button className="btn" type="button" onClick={() => setDeleteAllStudentsOpen(false)}>ביטול</button>
+                <button className="btn danger" type="button" onClick={confirmDeleteAllStudents}>מחיקת הכול</button>
               </div>
             </div>
           </section>

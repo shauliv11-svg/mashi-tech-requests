@@ -667,7 +667,15 @@ th {
   place-items: center;
   padding: 20px;
   background: rgba(12, 22, 17, 0.45);
-  z-index: 10;
+  z-index: 50;
+}
+
+.destructive-confirm-backdrop {
+  z-index: 60;
+}
+
+.destructive-confirm-modal {
+  width: min(560px, 100%);
 }
 
 .modal {
@@ -2633,7 +2641,21 @@ tbody tr:hover {
 
 .user-form-modal {
   width: min(760px, 100%);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.user-form-modal > .panel-header {
+  flex: 0 0 auto;
+}
+
+.user-form-modal > form {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
 }
 
 
@@ -3234,6 +3256,7 @@ tbody tr:hover {
   .user-form-modal {
     width: 100%;
     max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 12px);
   }
 
   .users-summary-grid,
