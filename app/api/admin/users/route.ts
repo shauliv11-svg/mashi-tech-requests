@@ -235,7 +235,11 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "cannot_delete_self" }, { status: 400 });
   }
 
-  const [{ data: linkedRequests, error: linkedRequestsError }, { data: linkedUpdates, error: linkedUpdatesError }] = await Promise.all([
+  const [
+    { data: linkedRequests, error: linkedRequestsError },
+    { data: linkedUpdates, error: linkedUpdatesError },
+    { data: linkedClosures, error: linkedClosuresError }
+  ] = await Promise.all([
     adminClient
       .from("tech_requests")
       .select("id")
@@ -245,14 +249,19 @@ export async function DELETE(request: NextRequest) {
       .from("request_treatment_updates")
       .select("id")
       .eq("author_id", id)
+      .limit(1),
+    adminClient
+      .from("request_closures")
+      .select("id")
+      .eq("closed_by_id", id)
       .limit(1)
   ]);
 
-  if (linkedRequestsError || linkedUpdatesError) {
+  if (linkedRequestsError || linkedUpdatesError || linkedClosuresError) {
     return NextResponse.json({ error: "linked_history_check_failed" }, { status: 500 });
   }
 
-  const hasHistory = Boolean(linkedRequests?.length || linkedUpdates?.length);
+  const hasHistory = Boolean(linkedRequests?.length || linkedUpdates?.length || linkedClosures?.length);
 
   if (hasHistory) {
     const { data: appUser, error } = await adminClient

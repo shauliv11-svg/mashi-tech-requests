@@ -2884,6 +2884,33 @@ tbody tr:hover {
   width: min(900px, 100%);
 }
 
+.closure-report-panel {
+  margin-bottom: 18px;
+}
+
+.closure-report-panel .panel-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.closure-report-controls {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.report-period-segmented {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.closure-report-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 10px;
+}
+
 .student-import-modal {
   width: min(680px, 100%);
 }
@@ -3163,6 +3190,74 @@ tbody tr:hover {
   color: #33483f;
 }
 
+.closure-journal-section {
+  border-color: color-mix(in srgb, var(--dot-lime) 42%, white);
+  background: #fcfff7;
+}
+
+.closure-journal-list,
+.request-closure-list {
+  display: grid;
+  gap: 10px;
+}
+
+.closure-journal-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--dot-lime) 34%, white);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.closure-journal-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.closure-journal-main strong {
+  color: var(--brand-deep);
+  font-size: 1rem;
+}
+
+.closure-journal-main span,
+.closure-journal-main small,
+.request-closure-list span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.closure-journal-main p,
+.request-closure-list p {
+  margin: 2px 0 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.closure-date {
+  font-size: 0.82rem;
+}
+
+.request-closure-list article {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.nested-modal-backdrop {
+  z-index: 90;
+}
+
+.closure-edit-modal {
+  width: min(560px, 100%);
+}
+
 @media (max-width: 840px) {
   .student-search-tools,
   .users-toolbar,
@@ -3198,6 +3293,14 @@ tbody tr:hover {
   .student-history-list {
     grid-template-columns: 1fr;
   }
+
+  .closure-report-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .closure-report-dates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -3222,6 +3325,24 @@ tbody tr:hover {
 
   .compact-actions .btn {
     width: 100%;
+  }
+
+  .closure-report-panel .panel-header,
+  .closure-journal-entry {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .closure-report-panel .panel-header .btn {
+    width: 100%;
+  }
+
+  .report-period-segmented {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .closure-report-dates {
+    grid-template-columns: 1fr;
   }
 }
 

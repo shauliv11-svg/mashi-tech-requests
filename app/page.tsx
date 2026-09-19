@@ -10,7 +10,10 @@ type EquipmentPage = "devices" | "mine" | "maintenance" | "log" | "manage";
 type SubjectType = "student" | "class";
 type RequestStatus = "new" | "progress" | "waiting" | "closed";
 type DeviceType = "מחשב" | "אייפד" | "אייפד אייר" | "מחשב מיקוד מבט" | "אייפד פרו" | "דרושה הנגשה";
-type CareProvider = "משרד הבריאות" | "משרד החינוך";
+type CareProvider = "משרד הבריאות" | "משרד החינוך" | "מחוץ למשי" | "קופת חולים כללית";
+type GridType = "כן" | "לא" | "טאצ'ט";
+type ClosureType = "תיקון מחשב" | "תיקון מסך" | "החלפת מסך" | "החלפת מצלמה" | "תיקון שקע חיבור מטען" | "אחר";
+type ReportPeriod = "all" | "month" | "schoolYear" | "custom";
 
 type Student = {
   id: number;
@@ -23,6 +26,9 @@ type Student = {
   deviceResponsibilityPhone?: string;
   deviceResponsibilityEmail?: string;
   accessories?: string;
+  notes?: string;
+  gridType?: GridType;
+  cameraType?: string;
   appleId?: string;
   applePassword?: string;
   active: boolean;
@@ -62,6 +68,24 @@ type TreatmentUpdate = {
   note: string;
   createdAt: string;
   createdAtIso?: string;
+};
+
+type RequestClosure = {
+  id: number;
+  requestId: number;
+  studentId?: number;
+  closedById: number;
+  closureType: ClosureType;
+  otherDetail?: string;
+  closingMessage: string;
+  closedAt: string;
+  closedAtIso: string;
+};
+
+type ClosureDraft = {
+  closureType: ClosureType;
+  otherDetail?: string;
+  closingMessage: string;
 };
 
 type SchoolDeviceStatus = "available" | "checked_out" | "repair" | "inactive";
@@ -156,24 +180,29 @@ const requestTypes = [
 
 const deviceTypes: DeviceType[] = ["מחשב", "אייפד", "אייפד אייר", "מחשב מיקוד מבט", "אייפד פרו", "דרושה הנגשה"];
 const schoolDeviceTypes: SchoolDeviceType[] = ["אייפד", "אייפד אייר", "אייפד פרו", "מחשב", "ציוד אחר"];
-const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך"];
+const careProviders: CareProvider[] = ["משרד הבריאות", "משרד החינוך", "מחוץ למשי", "קופת חולים כללית"];
+const gridTypes: GridType[] = ["כן", "לא", "טאצ'ט"];
+const closureTypes: ClosureType[] = ["תיקון מחשב", "תיקון מסך", "החלפת מסך", "החלפת מצלמה", "תיקון שקע חיבור מטען", "אחר"];
 const studentImportHeaders = [
   "שם תלמיד/ה",
   "כיתה",
   "סוג מכשיר",
-  "גורם מטפל",
+  "דרך הנגשה",
   "תאריך הנגשה",
+  "הערות",
   "גורם אחריות מכשיר",
   "טלפון גורם אחריות",
   "אימייל גורם אחריות",
   "עזרים נלווים",
   "אפל איידי",
   "סיסמה",
-  "פעיל"
+  "פעיל",
+  "גריד",
+  "סוג מצלמה"
 ];
 const studentImportExampleRows = [
-  ["נועה לוי", "ג׳ תקשורת", "אייפד", "משרד החינוך", "09/25", "רכזת תקשוב", "03-0000000", "tikshuv@mashi.school", "מגן קשיח, מקלדת בלוטות׳", "noa.apple@mashi.school", "", "כן"],
-  ["יואב כהן", "ד׳1", "מחשב מיקוד מבט", "משרד הבריאות", "11/25", "קלינאית תקשורת", "03-0000001", "clinic@mashi.school", "מתקן שולחני", "", "", "כן"]
+  ["נועה לוי", "ג׳ תקשורת", "אייפד", "משרד החינוך", "09/25", "", "רכזת תקשוב", "03-0000000", "tikshuv@mashi.school", "מגן קשיח, מקלדת בלוטות׳", "noa.apple@mashi.school", "", "כן", "כן", ""],
+  ["יואב כהן", "ד׳1", "מחשב מיקוד מבט", "משרד הבריאות", "פברואר 25", "נדרש מעקב", "קלינאית תקשורת", "03-0000001", "clinic@mashi.school", "מתקן שולחני", "", "", "כן", "טאצ'ט", "Alea"]
 ];
 
 const initialStudents: Student[] = [
@@ -286,6 +315,8 @@ const initialTreatmentUpdates: TreatmentUpdate[] = [
     createdAt: "24.06.2026, 13:15"
   }
 ];
+
+const initialRequestClosures: RequestClosure[] = [];
 
 const initialSchoolDevices: SchoolDevice[] = [
   { id: 1, name: "אייפד בית ספרי 01", deviceType: "אייפד", serialNumber: "MSHI-IPAD-01", location: "ארון תקשוב", status: "available", notes: "כולל מגן ומטען", active: true },
@@ -404,6 +435,132 @@ function displayDateTime(value?: string) {
   return new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" }).format(parsed);
 }
 
+function toDateTimeLocalValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function closureLabel(closure: RequestClosure) {
+  return closure.closureType === "אחר" && closure.otherDetail?.trim()
+    ? closure.otherDetail.trim()
+    : closure.closureType;
+}
+
+function reportDateRange(period: ReportPeriod, customFrom: string, customTo: string) {
+  if (period === "all") return { from: null, to: null };
+  if (period === "custom") {
+    return {
+      from: customFrom ? new Date(`${customFrom}T00:00:00`) : null,
+      to: customTo ? new Date(`${customTo}T23:59:59.999`) : null
+    };
+  }
+
+  const now = new Date();
+  if (period === "month") {
+    const from = new Date(now);
+    from.setMonth(from.getMonth() - 1);
+    return { from, to: now };
+  }
+
+  const schoolYearStart = new Date(now.getFullYear() - (now.getMonth() < 8 ? 1 : 0), 8, 1);
+  return { from: schoolYearStart, to: now };
+}
+
+function filterClosuresByPeriod(closures: RequestClosure[], period: ReportPeriod, customFrom: string, customTo: string) {
+  const { from, to } = reportDateRange(period, customFrom, customTo);
+  return closures.filter((closure) => {
+    const date = new Date(closure.closedAtIso);
+    if (Number.isNaN(date.getTime())) return false;
+    return (!from || date >= from) && (!to || date <= to);
+  });
+}
+
+async function downloadClosureWorkbook({
+  closures,
+  requests,
+  students,
+  users,
+  fileName,
+  title
+}: {
+  closures: RequestClosure[];
+  requests: TechRequest[];
+  students: Student[];
+  users: User[];
+  fileName: string;
+  title: string;
+}) {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "פורטל טכנולוגיה מסייעת";
+  workbook.created = new Date();
+  const worksheet = workbook.addWorksheet("סגירות", { views: [{ rightToLeft: true, state: "frozen", ySplit: 3 }] });
+  const headers = ["תלמיד/ה", "כיתה", "מכשיר", "מספר בקשה", "סוג בקשה", "תיאור הבקשה", "סוג סגירה", "פירוט אחר", "הודעת הסגירה", "תאריך סגירה", "נסגרה על ידי"];
+
+  worksheet.mergeCells(1, 1, 1, headers.length);
+  const titleCell = worksheet.getCell(1, 1);
+  titleCell.value = title;
+  titleCell.font = { bold: true, size: 16, color: { argb: "FF1232A3" } };
+  titleCell.alignment = { horizontal: "right", vertical: "middle" };
+  worksheet.getRow(1).height = 30;
+  worksheet.addRow([]);
+  const headerRow = worksheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F7FA8" } };
+  headerRow.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
+  headerRow.height = 28;
+
+  closures
+    .slice()
+    .sort((first, second) => new Date(second.closedAtIso).getTime() - new Date(first.closedAtIso).getTime())
+    .forEach((closure) => {
+      const request = requests.find((item) => item.id === closure.requestId);
+      const student = students.find((item) => item.id === closure.studentId) ?? students.find((item) => item.id === request?.studentId);
+      const closer = users.find((item) => item.id === closure.closedById);
+      worksheet.addRow([
+        student?.fullName ?? request?.subjectName ?? "",
+        student?.className ?? request?.className ?? "",
+        student?.deviceType ?? "",
+        request?.id ?? closure.requestId,
+        request?.requestType ?? "",
+        request?.description ?? "",
+        closure.closureType,
+        closure.otherDetail ?? "",
+        closure.closingMessage,
+        new Date(closure.closedAtIso),
+        closer?.name ?? ""
+      ]);
+    });
+
+  worksheet.getColumn(10).numFmt = "dd/mm/yyyy hh:mm";
+  worksheet.columns.forEach((column, index) => {
+    const widths = [22, 14, 18, 13, 23, 42, 24, 30, 42, 20, 20];
+    column.width = widths[index] ?? 18;
+    column.alignment = { horizontal: "right", vertical: "top", wrapText: true };
+  });
+  worksheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: headers.length } };
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber <= 3) return;
+    row.height = 34;
+    row.eachCell((cell) => {
+      cell.border = { bottom: { style: "hair", color: { argb: "FFD7E2DE" } } };
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function parseDateValue(value?: string) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -458,12 +615,22 @@ function isAppleDevice(deviceType?: DeviceType) {
 
 function normalizeDeviceType(value?: string): DeviceType | undefined {
   const trimmed = value?.trim();
+  if (trimmed === "ללא") return "דרושה הנגשה";
   return deviceTypes.find((type) => type === trimmed);
 }
 
 function normalizeCareProvider(value?: string): CareProvider | undefined {
   const trimmed = value?.trim();
   return careProviders.find((provider) => provider === trimmed);
+}
+
+function normalizeGridType(value?: string): GridType | undefined {
+  const trimmed = value?.trim().replace("טאצט", "טאצ'ט");
+  return gridTypes.find((type) => type === trimmed);
+}
+
+function normalizeImportHeader(value: string) {
+  return value.replace(/^\uFEFF/, "").trim().replace(/\s+/g, " ");
 }
 
 function csvCell(value: string) {
@@ -518,36 +685,50 @@ function parseStudentImportRows(text: string): Student[] {
 
   const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
   const rows = lines.map((line) => parseDelimitedLine(line, delimiter));
-  const firstRow = rows[0].join(" ");
-  const dataRows = firstRow.includes("שם") && firstRow.includes("כיתה") ? rows.slice(1) : rows;
+  const normalizedFirstRow = rows[0].map(normalizeImportHeader);
+  const hasHeader = normalizedFirstRow.includes("שם תלמיד/ה") && normalizedFirstRow.includes("כיתה");
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const headerIndexes = new Map(normalizedFirstRow.map((header, index) => [header, index]));
+
+  const cell = (row: string[], fallbackIndex: number, ...headers: string[]) => {
+    if (hasHeader) {
+      for (const header of headers) {
+        const index = headerIndexes.get(header);
+        if (index !== undefined) return row[index] ?? "";
+      }
+    }
+    return row[fallbackIndex] ?? "";
+  };
 
   const parsed: Student[] = [];
   dataRows.forEach((row, index) => {
-    const [name, classValue, deviceValue, providerValue, accessibilityValue, responsibilityValue, phoneValue, emailValue, accessoriesValue, appleIdValue, applePasswordValue, activeValue] = row;
-    const fullName = name?.trim();
-    const className = classValue?.trim();
+    const fullName = cell(row, 0, "שם תלמיד/ה", "שם").trim();
+    const className = cell(row, 1, "כיתה").trim();
     if (!fullName || !className) return;
-    const deviceType = normalizeDeviceType(deviceValue) ?? "מחשב";
-    const activeText = activeValue?.trim().toLowerCase();
-    const active = !["לא", "false", "0", "מושבת", "מושבתת"].includes(activeText ?? "");
+
+    const deviceType = normalizeDeviceType(cell(row, 2, "סוג מכשיר")) ?? "מחשב";
+    const activeText = cell(row, 12, "פעיל", "פעילה").trim().toLowerCase();
+    const active = !["לא", "false", "0", "מושבת", "מושבתת"].includes(activeText);
 
     parsed.push({
       id: Date.now() + index,
       fullName,
       className,
       deviceType,
-      careProvider: normalizeCareProvider(providerValue) ?? "משרד החינוך",
-      accessibilityDate: accessibilityValue?.trim() || undefined,
-      deviceResponsibility: responsibilityValue?.trim() || undefined,
-      deviceResponsibilityPhone: phoneValue?.trim() || undefined,
-      deviceResponsibilityEmail: emailValue?.trim() || undefined,
-      accessories: accessoriesValue?.trim() || undefined,
-      appleId: isAppleDevice(deviceType) ? appleIdValue?.trim() || undefined : undefined,
-      applePassword: isAppleDevice(deviceType) ? applePasswordValue?.trim() || undefined : undefined,
+      careProvider: normalizeCareProvider(cell(row, 3, "דרך הנגשה", "גורם מטפל")),
+      accessibilityDate: cell(row, 4, "תאריך הנגשה").trim() || undefined,
+      notes: cell(row, 5, "הערות").trim() || undefined,
+      deviceResponsibility: cell(row, 6, "גורם אחריות מכשיר").trim() || undefined,
+      deviceResponsibilityPhone: cell(row, 7, "טלפון גורם אחריות").trim() || undefined,
+      deviceResponsibilityEmail: cell(row, 8, "אימייל גורם אחריות").trim() || undefined,
+      accessories: cell(row, 9, "עזרים נלווים").trim() || undefined,
+      appleId: isAppleDevice(deviceType) ? cell(row, 10, "אפל איידי").trim() || undefined : undefined,
+      applePassword: isAppleDevice(deviceType) ? cell(row, 11, "סיסמה").trim() || undefined : undefined,
+      gridType: normalizeGridType(cell(row, 13, "גריד")),
+      cameraType: cell(row, 14, "סוג מצלמה").trim() || undefined,
       active
     });
   });
-
   return parsed;
 }
 
@@ -574,6 +755,9 @@ function mapStudent(row: any): Student {
     deviceResponsibilityPhone: row.device_responsibility_phone ?? undefined,
     deviceResponsibilityEmail: row.device_responsibility_email ?? undefined,
     accessories: row.accessories ?? undefined,
+    notes: row.notes ?? undefined,
+    gridType: row.grid_type ?? undefined,
+    cameraType: row.camera_type ?? undefined,
     appleId: row.apple_id ?? undefined,
     applePassword: row.apple_password ?? undefined,
     active: row.active
@@ -608,6 +792,20 @@ function mapTreatmentUpdate(row: any): TreatmentUpdate {
     note: row.note,
     createdAt: displayDateTime(row.created_at),
     createdAtIso: row.created_at ?? undefined
+  };
+}
+
+function mapRequestClosure(row: any): RequestClosure {
+  return {
+    id: Number(row.id),
+    requestId: Number(row.request_id),
+    studentId: row.student_id ? Number(row.student_id) : undefined,
+    closedById: Number(row.closed_by_id),
+    closureType: row.closure_type,
+    otherDetail: row.other_detail ?? undefined,
+    closingMessage: row.closing_message ?? "",
+    closedAt: displayDateTime(row.closed_at),
+    closedAtIso: row.closed_at
   };
 }
 
@@ -667,7 +865,7 @@ function mapDeviceAvailabilityBlock(row: any): DeviceAvailabilityBlock {
   };
 }
 
-function studentPayload(student: Student, includeResponsibilityContacts = true) {
+function studentPayload(student: Student, includeResponsibilityContacts = true, includeExtendedFields = true) {
   const payload: Record<string, unknown> = {
     full_name: student.fullName,
     class_name: student.className,
@@ -680,6 +878,12 @@ function studentPayload(student: Student, includeResponsibilityContacts = true) 
     apple_password: student.applePassword || null,
     active: student.active
   };
+
+  if (includeExtendedFields) {
+    payload.notes = student.notes || null;
+    payload.grid_type = student.gridType || null;
+    payload.camera_type = student.cameraType || null;
+  }
 
   if (includeResponsibilityContacts) {
     payload.device_responsibility_phone = student.deviceResponsibilityPhone || null;
@@ -717,6 +921,18 @@ function treatmentUpdatePayload(update: TreatmentUpdate) {
     request_id: update.requestId,
     author_id: update.authorId,
     note: update.note
+  };
+}
+
+function requestClosurePayload(closure: RequestClosure) {
+  return {
+    request_id: closure.requestId,
+    student_id: closure.studentId ?? null,
+    closed_by_id: closure.closedById,
+    closure_type: closure.closureType,
+    other_detail: closure.closureType === "אחר" ? closure.otherDetail?.trim() || null : null,
+    closing_message: closure.closingMessage,
+    closed_at: closure.closedAtIso
   };
 }
 
@@ -776,6 +992,7 @@ export default function Home() {
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [requests, setRequests] = useState<TechRequest[]>(initialRequests);
   const [treatmentUpdates, setTreatmentUpdates] = useState<TreatmentUpdate[]>(initialTreatmentUpdates);
+  const [requestClosures, setRequestClosures] = useState<RequestClosure[]>(initialRequestClosures);
   const [schoolDevices, setSchoolDevices] = useState<SchoolDevice[]>(initialSchoolDevices);
   const [deviceLoans, setDeviceLoans] = useState<DeviceLoan[]>(initialDeviceLoans);
   const [deviceMaintenance, setDeviceMaintenance] = useState<DeviceMaintenance[]>(initialDeviceMaintenance);
@@ -788,8 +1005,10 @@ export default function Home() {
   const [authNotice, setAuthNotice] = useState("");
   const [toast, setToast] = useState("");
   const [studentResponsibilityContactsSupported, setStudentResponsibilityContactsSupported] = useState(!isSupabaseConfigured);
+  const [studentExtendedFieldsSupported, setStudentExtendedFieldsSupported] = useState(!isSupabaseConfigured);
   const [requestHandlerSupported, setRequestHandlerSupported] = useState(!isSupabaseConfigured);
   const [treatmentLogSupported, setTreatmentLogSupported] = useState(!isSupabaseConfigured);
+  const [requestClosuresSupported, setRequestClosuresSupported] = useState(!isSupabaseConfigured);
   const [equipmentSupported, setEquipmentSupported] = useState(!isSupabaseConfigured);
 
   const authProfile = authEmail
@@ -1061,13 +1280,15 @@ export default function Home() {
     if (!isSupabaseConfigured || !supabase) return;
 
     async function loadData() {
-      const [usersResult, studentsResult, requestsResult, contactColumnsResult, handlerColumnResult, treatmentUpdatesResult, devicesResult, loansResult, maintenanceResult, availabilityResult] = await Promise.all([
+      const [usersResult, studentsResult, requestsResult, contactColumnsResult, extendedStudentColumnsResult, handlerColumnResult, treatmentUpdatesResult, requestClosuresResult, devicesResult, loansResult, maintenanceResult, availabilityResult] = await Promise.all([
         supabase!.from("app_users").select("*").order("id"),
         supabase!.from("students").select("*").order("full_name"),
         supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
         supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1),
+        supabase!.from("students").select("notes, grid_type, camera_type").limit(1),
         supabase!.from("tech_requests").select("handler_id").limit(1),
         supabase!.from("request_treatment_updates").select("*").order("created_at", { ascending: true }),
+        supabase!.from("request_closures").select("*").order("closed_at", { ascending: false }),
         supabase!.from("school_devices").select("*").order("name"),
         supabase!.from("school_device_loans").select("*").order("checked_out_at", { ascending: false }),
         supabase!.from("school_device_maintenance").select("*").order("created_at", { ascending: false }),
@@ -1081,13 +1302,16 @@ export default function Home() {
       }
 
       setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
+      setStudentExtendedFieldsSupported(!extendedStudentColumnsResult.error);
       setRequestHandlerSupported(!handlerColumnResult.error);
       setTreatmentLogSupported(!treatmentUpdatesResult.error);
+      setRequestClosuresSupported(!requestClosuresResult.error);
       setEquipmentSupported(!devicesResult.error && !loansResult.error && !maintenanceResult.error && !availabilityResult.error);
       setUsers((usersResult.data ?? []).map(mapUser));
       setStudents((studentsResult.data ?? []).map(mapStudent));
       setRequests((requestsResult.data ?? []).map(mapRequest));
       setTreatmentUpdates(treatmentUpdatesResult.error ? [] : (treatmentUpdatesResult.data ?? []).map(mapTreatmentUpdate));
+      setRequestClosures(requestClosuresResult.error ? [] : (requestClosuresResult.data ?? []).map(mapRequestClosure));
       if (!devicesResult.error) setSchoolDevices((devicesResult.data ?? []).map(mapSchoolDevice));
       if (!loansResult.error) setDeviceLoans((loansResult.data ?? []).map(mapDeviceLoan));
       if (!maintenanceResult.error) setDeviceMaintenance((maintenanceResult.data ?? []).map(mapDeviceMaintenance));
@@ -1195,6 +1419,7 @@ export default function Home() {
     if (!isSupabaseConfigured || !supabase) {
       setRequests((items) => items.filter((item) => item.id !== request.id));
       setTreatmentUpdates((items) => items.filter((item) => item.requestId !== request.id));
+      setRequestClosures((items) => items.filter((item) => item.requestId !== request.id));
       setSelectedRequestId(null);
       showToast("הבקשה נמחקה.");
       return;
@@ -1208,6 +1433,7 @@ export default function Home() {
 
     setRequests((items) => items.filter((item) => item.id !== request.id));
     setTreatmentUpdates((items) => items.filter((item) => item.requestId !== request.id));
+    setRequestClosures((items) => items.filter((item) => item.requestId !== request.id));
     setSelectedRequestId(null);
     showToast("הבקשה נמחקה מהדאטה בייס.");
   }
@@ -1255,12 +1481,84 @@ export default function Home() {
     return true;
   }
 
-  async function closeRequest(updated: TechRequest, shouldSendEmail: boolean) {
-    const saved = await updateRequest(updated, "הבקשה נסגרה ונשמרה בדאטה בייס.");
+  async function closeRequest(updated: TechRequest, shouldSendEmail: boolean, closureDraft: ClosureDraft) {
+    if (!currentUser) return false;
+    const closedAtIso = new Date().toISOString();
+    const optimisticClosure: RequestClosure = {
+      id: Date.now(),
+      requestId: updated.id,
+      studentId: updated.studentId,
+      closedById: currentUser.id,
+      closureType: closureDraft.closureType,
+      otherDetail: closureDraft.otherDetail,
+      closingMessage: closureDraft.closingMessage,
+      closedAt: displayDateTime(closedAtIso),
+      closedAtIso
+    };
 
-    if (saved && shouldSendEmail && saved.closingMessage?.trim()) {
-      await sendRequestClosedEmail(saved.id);
+    if (!isSupabaseConfigured || !supabase) {
+      setRequestClosures((items) => [optimisticClosure, ...items]);
+      const saved = await updateRequest(updated, "הבקשה נסגרה ונוספה ליומן הסגירות.");
+      if (saved && shouldSendEmail && saved.closingMessage?.trim()) await sendRequestClosedEmail(saved.id);
+      return Boolean(saved);
     }
+
+    if (!requestClosuresSupported) {
+      showToast("צריך להריץ את עדכון מסד הנתונים של יומן הסגירות לפני שאפשר לסגור בקשות.");
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from("request_closures")
+      .insert(requestClosurePayload(optimisticClosure))
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      showToast("שמירת פרטי הסגירה נכשלה. הבקשה נשארה פתוחה.");
+      return false;
+    }
+
+    const saved = await updateRequest(updated, "הבקשה נסגרה ונוספה ליומן הסגירות.");
+    if (!saved) {
+      await supabase.from("request_closures").delete().eq("id", data.id);
+      return false;
+    }
+
+    const savedClosure = mapRequestClosure(data);
+    setRequestClosures((items) => [savedClosure, ...items]);
+    if (shouldSendEmail && saved.closingMessage?.trim()) await sendRequestClosedEmail(saved.id);
+    return true;
+  }
+
+  async function updateRequestClosure(updated: RequestClosure) {
+    if (role !== "admin") {
+      showToast("רק אדמין יכול לערוך אירועי סגירה.");
+      return false;
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      setRequestClosures((items) => items.map((item) => item.id === updated.id ? updated : item));
+      showToast("אירוע הסגירה עודכן.");
+      return true;
+    }
+
+    const { data, error } = await supabase
+      .from("request_closures")
+      .update(requestClosurePayload(updated))
+      .eq("id", updated.id)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      showToast("עדכון אירוע הסגירה נכשל.");
+      return false;
+    }
+
+    const saved = mapRequestClosure(data);
+    setRequestClosures((items) => items.map((item) => item.id === saved.id ? saved : item));
+    showToast("אירוע הסגירה עודכן.");
+    return true;
   }
 
   async function createUser(user: User, initialPassword?: string) {
@@ -1372,7 +1670,9 @@ export default function Home() {
     }
 
     if (!isSupabaseConfigured || !supabase) {
-      const hasHistory = requests.some((request) => request.requesterId === user.id || request.handlerId === user.id) || treatmentUpdates.some((update) => update.authorId === user.id);
+      const hasHistory = requests.some((request) => request.requesterId === user.id || request.handlerId === user.id)
+        || treatmentUpdates.some((update) => update.authorId === user.id)
+        || requestClosures.some((closure) => closure.closedById === user.id);
       setUsers((items) => hasHistory
         ? items.map((item) => item.id === user.id ? { ...item, active: false } : item)
         : items.filter((item) => item.id !== user.id)
@@ -1432,7 +1732,7 @@ export default function Home() {
       showToast("התלמיד/ה נוספו לרשימה.");
       return;
     }
-    const { data, error } = await supabase.from("students").insert(studentPayload(student, studentResponsibilityContactsSupported)).select("*").single();
+    const { data, error } = await supabase.from("students").insert(studentPayload(student, studentResponsibilityContactsSupported, studentExtendedFieldsSupported)).select("*").single();
     if (error) {
       showToast("שמירת התלמיד/ה בדאטה בייס נכשלה.");
       return;
@@ -1447,7 +1747,7 @@ export default function Home() {
       showToast("פרטי התלמיד/ה נשמרו.");
       return;
     }
-    const { data, error } = await supabase.from("students").update(studentPayload(student, studentResponsibilityContactsSupported)).eq("id", student.id).select("*").single();
+    const { data, error } = await supabase.from("students").update(studentPayload(student, studentResponsibilityContactsSupported, studentExtendedFieldsSupported)).eq("id", student.id).select("*").single();
     if (error) {
       showToast("שמירת התלמיד/ה בדאטה בייס נכשלה.");
       return;
@@ -1562,7 +1862,7 @@ export default function Home() {
       showToast(`${newStudents.length} תלמידים נוספו מהרשימה שהודבקה.`);
       return;
     }
-    const { data, error } = await supabase.from("students").insert(newStudents.map((student) => studentPayload(student, studentResponsibilityContactsSupported))).select("*");
+    const { data, error } = await supabase.from("students").insert(newStudents.map((student) => studentPayload(student, studentResponsibilityContactsSupported, studentExtendedFieldsSupported))).select("*");
     if (error) {
       showToast("יבוא התלמידים לדאטה בייס נכשל.");
       return;
@@ -1967,6 +2267,7 @@ export default function Home() {
           <ManageRequests
             requests={requests}
             users={users}
+            requestClosures={requestClosures}
             selectedRequest={selectedRequest}
             selectedRequestStudent={selectedRequestStudent}
             treatmentUpdates={treatmentUpdates}
@@ -2013,12 +2314,19 @@ export default function Home() {
           <StudentsAdmin
             students={students}
             requests={requests}
+            users={users}
+            requestClosures={requestClosures}
             onAdd={createStudent}
             onUpdate={updateStudent}
             onDelete={deleteStudent}
             onDeleteAll={deleteAllStudents}
             onRestore={restoreStudent}
             onImport={importStudents}
+            onUpdateClosure={updateRequestClosure}
+            onOpenRequest={(requestId) => {
+              setSelectedRequestId(requestId);
+              navigate("manageRequests");
+            }}
           />
         )}
       </section>
@@ -3348,6 +3656,7 @@ function NewRequest({
 function ManageRequests({
   requests,
   users,
+  requestClosures,
   selectedRequest,
   selectedRequestStudent,
   treatmentUpdates,
@@ -3361,13 +3670,14 @@ function ManageRequests({
 }: {
   requests: TechRequest[];
   users: User[];
+  requestClosures: RequestClosure[];
   selectedRequest?: TechRequest;
   selectedRequestStudent?: Student;
   treatmentUpdates: TreatmentUpdate[];
   currentUser: User;
   onSelect: (id: number) => void;
   onUpdate: (request: TechRequest) => void | Promise<void>;
-  onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
+  onClose: (request: TechRequest, shouldSendEmail: boolean, closure: ClosureDraft) => boolean | Promise<boolean>;
   onDelete: (request: TechRequest) => void | Promise<void>;
   onAddTreatmentUpdate: (request: TechRequest, note: string) => void | Promise<void>;
   onCloseDetails: () => void;
@@ -3537,6 +3847,7 @@ function ManageRequests({
                   onDelete={onDelete}
                   canDelete={currentUser.role === "admin"}
                   treatmentUpdates={request.id === selectedRequest?.id ? treatmentUpdates.filter((update) => update.requestId === request.id) : []}
+                  closures={requestClosures.filter((closure) => closure.requestId === request.id)}
                   treatmentAuthors={users}
                   currentUser={currentUser}
                   onAddTreatmentUpdate={onAddTreatmentUpdate}
@@ -3551,9 +3862,10 @@ function ManageRequests({
         <CloseRequestModal
           request={closingRequest}
           onCancel={() => setClosingRequest(null)}
-          onClose={(updated, shouldSendEmail) => {
-            setClosingRequest(null);
-            onClose(updated, shouldSendEmail);
+          onClose={async (updated, shouldSendEmail, closure) => {
+            const didClose = await onClose(updated, shouldSendEmail, closure);
+            if (didClose) setClosingRequest(null);
+            return didClose;
           }}
         />
       )}
@@ -3650,6 +3962,7 @@ function RequestDetails({
   onDelete,
   canDelete = false,
   treatmentUpdates = [],
+  closures = [],
   treatmentAuthors = [],
   currentUser,
   onAddTreatmentUpdate
@@ -3663,6 +3976,7 @@ function RequestDetails({
   onDelete?: (request: TechRequest) => void | Promise<void>;
   canDelete?: boolean;
   treatmentUpdates?: TreatmentUpdate[];
+  closures?: RequestClosure[];
   treatmentAuthors?: User[];
   currentUser: User;
   onAddTreatmentUpdate: (request: TechRequest, note: string) => void | Promise<void>;
@@ -3768,8 +4082,9 @@ function RequestDetails({
             <option value="new">חדשה</option>
             <option value="progress">בטיפול</option>
             <option value="waiting">נשלח לתיקון</option>
-            <option value="closed">נסגרה</option>
+            {request.status === "closed" && <option value="closed">נסגרה</option>}
           </select>
+          <span className="field-help">סגירה מתבצעת רק דרך כפתור סגירת הבקשה כדי לשמור תיעוד מלא.</span>
         </div>
         <div className="field">
           <label htmlFor="note">תקציר פנימי אחרון</label>
@@ -3779,9 +4094,11 @@ function RequestDetails({
           <button className="btn" onClick={() => onUpdate({ ...request, internalNote: note || request.internalNote })}>
             שמירת הערה
           </button>
-          <button className="btn primary" onClick={() => onClose(request)}>
-            סגירת בקשה
-          </button>
+          {request.status !== "closed" && (
+            <button className="btn primary" onClick={() => onClose(request)}>
+              סגירת בקשה
+            </button>
+          )}
           {canDelete && onDelete && (
             <button className="btn danger" type="button" onClick={() => onDelete(request)}>
               מחיקת בקשה
@@ -3792,6 +4109,20 @@ function RequestDetails({
           <div className="detail-item">
             <span>הודעת סגירה שנשלחה</span>
             <p>{request.closingMessage}</p>
+          </div>
+        )}
+        {closures.length > 0 && (
+          <div className="detail-item">
+            <span>יומן סגירות</span>
+            <div className="request-closure-list">
+              {closures.map((closure) => (
+                <article key={closure.id}>
+                  <strong>{closureLabel(closure)}</strong>
+                  <span>{closure.closedAt}</span>
+                  {closure.closingMessage && <p>{closure.closingMessage}</p>}
+                </article>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -3811,6 +4142,9 @@ function StudentDeviceDetails({ student }: { student: Student }) {
         <strong>טלפון אחריות: {student.deviceResponsibilityPhone || "לא הוזן"}</strong>
         <strong>אימייל אחריות: {student.deviceResponsibilityEmail || "לא הוזן"}</strong>
         <strong>עזרים נלווים: {student.accessories || "לא הוזן"}</strong>
+        <strong>גריד: {student.gridType || "לא הוזן"}</strong>
+        <strong>סוג מצלמה: {student.cameraType || "לא הוזן"}</strong>
+        <strong>הערות: {student.notes || "אין"}</strong>
         {isAppleDevice(student.deviceType) && (
           <>
             <strong>אפל איידי: {student.appleId || "לא הוזן"}</strong>
@@ -3829,12 +4163,17 @@ function CloseRequestModal({
 }: {
   request: TechRequest;
   onCancel: () => void;
-  onClose: (request: TechRequest, shouldSendEmail: boolean) => void | Promise<void>;
+  onClose: (request: TechRequest, shouldSendEmail: boolean, closure: ClosureDraft) => boolean | Promise<boolean>;
 }) {
   const [internalNote, setInternalNote] = useState(request.internalNote ?? "");
   const [message, setMessage] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
-  const canSubmit = !sendEmail || message.trim().length > 0;
+  const [closureType, setClosureType] = useState<ClosureType | "">("");
+  const [otherDetail, setOtherDetail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const canSubmit = Boolean(closureType)
+    && (closureType !== "אחר" || otherDetail.trim().length > 0)
+    && (!sendEmail || message.trim().length > 0);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="סגירת בקשה">
@@ -3844,6 +4183,20 @@ function CloseRequestModal({
         </div>
         <div className="panel-body">
           <div className="form-grid">
+            <div className="field full">
+              <label htmlFor="closureType">סוג הסגירה</label>
+              <select id="closureType" value={closureType} onChange={(event) => setClosureType(event.target.value as ClosureType | "")}>
+                <option value="">בחירת סוג סגירה</option>
+                {closureTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </div>
+            {closureType === "אחר" && (
+              <div className="field full">
+                <label htmlFor="closureOtherDetail">פירוט סוג הסגירה שבוצעה</label>
+                <input id="closureOtherDetail" value={otherDetail} onChange={(event) => setOtherDetail(event.target.value)} placeholder="מה בוצע בפועל?" />
+                {!otherDetail.trim() && <p className="inline-hint warning">יש למלא פירוט כשנבחרה האפשרות אחר.</p>}
+              </div>
+            )}
             <div className="field full">
               <label htmlFor="internalClose">סיכום טיפול פנימי</label>
               <textarea id="internalClose" value={internalNote} onChange={(event) => setInternalNote(event.target.value)} placeholder="מה נעשה בפועל? מה חשוב שיישאר מתועד לצוות הטכנולוגיה?" />
@@ -3867,17 +4220,25 @@ function CloseRequestModal({
               <button
                 className="btn primary"
                 type="button"
-                disabled={!canSubmit}
-                onClick={() =>
-                  onClose({
+                disabled={!canSubmit || saving}
+                onClick={async () => {
+                  if (!closureType) return;
+                  setSaving(true);
+                  const closingMessage = sendEmail ? message.trim() : "";
+                  const didClose = await onClose({
                     ...request,
                     status: "closed",
                     internalNote,
-                    closingMessage: sendEmail ? message.trim() : ""
-                  }, sendEmail)
-                }
+                    closingMessage
+                  }, sendEmail, {
+                    closureType,
+                    otherDetail: closureType === "אחר" ? otherDetail.trim() : undefined,
+                    closingMessage
+                  });
+                  if (!didClose) setSaving(false);
+                }}
               >
-                סגירה ושמירה
+                {saving ? "שומרת..." : "סגירה ושמירה"}
               </button>
             </div>
           </div>
@@ -4210,21 +4571,29 @@ function UsersAdmin({
 function StudentsAdmin({
   students,
   requests,
+  users,
+  requestClosures,
   onAdd,
   onUpdate,
   onDelete,
   onDeleteAll,
   onRestore,
-  onImport
+  onImport,
+  onUpdateClosure,
+  onOpenRequest
 }: {
   students: Student[];
   requests: TechRequest[];
+  users: User[];
+  requestClosures: RequestClosure[];
   onAdd: (student: Student) => void | Promise<void>;
   onUpdate: (student: Student) => void | Promise<void>;
   onDelete: (student: Student) => boolean | Promise<boolean>;
   onDeleteAll: () => boolean | Promise<boolean>;
   onRestore: (student: Student) => void | Promise<void>;
   onImport: (students: Student[]) => void | Promise<void>;
+  onUpdateClosure: (closure: RequestClosure) => boolean | Promise<boolean>;
+  onOpenRequest: (requestId: number) => void;
 }) {
   const [editingStudentId, setEditingStudentId] = useState<number | "new">("new");
   const editingStudent = students.find((student) => student.id === editingStudentId);
@@ -4238,6 +4607,9 @@ function StudentsAdmin({
   const [deviceResponsibilityPhone, setDeviceResponsibilityPhone] = useState("");
   const [deviceResponsibilityEmail, setDeviceResponsibilityEmail] = useState("");
   const [accessories, setAccessories] = useState("");
+  const [notes, setNotes] = useState("");
+  const [gridType, setGridType] = useState<GridType | "">("");
+  const [cameraType, setCameraType] = useState("");
   const [appleId, setAppleId] = useState("");
   const [applePassword, setApplePassword] = useState("");
   const [bulk, setBulk] = useState("");
@@ -4248,6 +4620,9 @@ function StudentsAdmin({
   const [deleteAllStudentsOpen, setDeleteAllStudentsOpen] = useState(false);
   const [studentFormOpen, setStudentFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("all");
+  const [reportFrom, setReportFrom] = useState("");
+  const [reportTo, setReportTo] = useState("");
 
   const studentRequestCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -4294,6 +4669,9 @@ function StudentsAdmin({
         student.deviceResponsibilityPhone,
         student.deviceResponsibilityEmail,
         student.accessories,
+        student.notes,
+        student.gridType,
+        student.cameraType,
         requestCount,
         repairCount,
         repairCount ? "תיקון תקלה ציוד" : ""
@@ -4310,6 +4688,42 @@ function StudentsAdmin({
       .filter((request) => request.studentId === historyStudentId)
       .sort((first, second) => second.id - first.id);
   }, [historyStudentId, requests]);
+  const filteredReportClosures = useMemo(
+    () => filterClosuresByPeriod(requestClosures, reportPeriod, reportFrom, reportTo),
+    [reportFrom, reportPeriod, reportTo, requestClosures]
+  );
+  const historyClosures = useMemo(() => {
+    if (!historyStudentId) return [];
+    return requestClosures
+      .filter((closure) => closure.studentId === historyStudentId || requests.find((request) => request.id === closure.requestId)?.studentId === historyStudentId)
+      .sort((first, second) => new Date(second.closedAtIso).getTime() - new Date(first.closedAtIso).getTime());
+  }, [historyStudentId, requestClosures, requests]);
+
+  async function downloadSchoolClosureReport() {
+    await downloadClosureWorkbook({
+      closures: filteredReportClosures,
+      requests,
+      students,
+      users,
+      fileName: `mashi-closure-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      title: "דוח סגירות בקשות - כלל בית הספר"
+    });
+  }
+
+  async function downloadStudentClosureReport(student: Student) {
+    const closures = filteredReportClosures.filter((closure) => {
+      const request = requests.find((item) => item.id === closure.requestId);
+      return closure.studentId === student.id || request?.studentId === student.id;
+    });
+    await downloadClosureWorkbook({
+      closures,
+      requests,
+      students,
+      users,
+      fileName: `mashi-${student.fullName.replace(/\s+/g, "-")}-closures.xlsx`,
+      title: `דוח סגירות בקשות - ${student.fullName}`
+    });
+  }
 
   function loadStudent(student: Student) {
     setEditingStudentId(student.id);
@@ -4322,6 +4736,9 @@ function StudentsAdmin({
     setDeviceResponsibilityPhone(student.deviceResponsibilityPhone ?? "");
     setDeviceResponsibilityEmail(student.deviceResponsibilityEmail ?? "");
     setAccessories(student.accessories ?? "");
+    setNotes(student.notes ?? "");
+    setGridType(student.gridType ?? "");
+    setCameraType(student.cameraType ?? "");
     setAppleId(student.appleId ?? "");
     setApplePassword(student.applePassword ?? "");
     setStudentFormOpen(true);
@@ -4338,6 +4755,9 @@ function StudentsAdmin({
     setDeviceResponsibilityPhone("");
     setDeviceResponsibilityEmail("");
     setAccessories("");
+    setNotes("");
+    setGridType("");
+    setCameraType("");
     setAppleId("");
     setApplePassword("");
   }
@@ -4366,6 +4786,9 @@ function StudentsAdmin({
       deviceResponsibilityPhone,
       deviceResponsibilityEmail,
       accessories,
+      notes,
+      gridType: gridType || undefined,
+      cameraType,
       appleId: isAppleDevice(deviceType) ? appleId : undefined,
       applePassword: isAppleDevice(deviceType) ? applePassword : undefined,
       active: editingStudent?.active ?? true
@@ -4452,6 +4875,42 @@ function StudentsAdmin({
           </>
         )}
       />
+
+      <section className="panel closure-report-panel">
+        <div className="panel-header">
+          <div>
+            <h3>דוח סגירות</h3>
+            <p>הדוח כולל את סוג הסגירה, תיאור הבקשה, הודעת הסגירה והמטפלת שסגרה.</p>
+          </div>
+          <button className="btn primary" type="button" onClick={downloadSchoolClosureReport} disabled={!filteredReportClosures.length}>
+            הורדת דוח בית ספרי
+          </button>
+        </div>
+        <div className="panel-body compact-panel-body closure-report-controls">
+          <div className="segmented report-period-segmented" aria-label="תקופת דוח סגירות">
+            <button type="button" className={`segment ${reportPeriod === "all" ? "active" : ""}`} onClick={() => setReportPeriod("all")}>כל התקופה</button>
+            <button type="button" className={`segment ${reportPeriod === "month" ? "active" : ""}`} onClick={() => setReportPeriod("month")}>החודש האחרון</button>
+            <button type="button" className={`segment ${reportPeriod === "schoolYear" ? "active" : ""}`} onClick={() => setReportPeriod("schoolYear")}>שנת הלימודים</button>
+            <button type="button" className={`segment ${reportPeriod === "custom" ? "active" : ""}`} onClick={() => setReportPeriod("custom")}>טווח מותאם</button>
+          </div>
+          {reportPeriod === "custom" && (
+            <div className="closure-report-dates">
+              <label className="field compact-field">
+                <span>מתאריך</span>
+                <input type="date" value={reportFrom} onChange={(event) => setReportFrom(event.target.value)} />
+              </label>
+              <label className="field compact-field">
+                <span>עד תאריך</span>
+                <input type="date" value={reportTo} onChange={(event) => setReportTo(event.target.value)} />
+              </label>
+            </div>
+          )}
+          <div className="student-search-summary">
+            <strong>{filteredReportClosures.length}</strong>
+            <span>סגירות ייכללו בדוח</span>
+          </div>
+        </div>
+      </section>
 
       <section className="panel students-directory-panel">
         <div className="panel-header">
@@ -4540,7 +4999,7 @@ function StudentsAdmin({
                 </div>
                 <div className="field">
                   <label htmlFor="accessibilityDate">תאריך הנגשה</label>
-                  <input id="accessibilityDate" value={accessibilityDate} onChange={(event) => setAccessibilityDate(event.target.value)} placeholder="MM/YY" pattern="[0-9]{2}/[0-9]{2}" />
+                  <input id="accessibilityDate" value={accessibilityDate} onChange={(event) => setAccessibilityDate(event.target.value)} placeholder="לדוגמה: 09/25 או פברואר 25" />
                 </div>
                 <div className="field">
                   <label htmlFor="deviceResponsibility">גורם אחריות מכשיר</label>
@@ -4554,9 +5013,24 @@ function StudentsAdmin({
                   <label htmlFor="deviceResponsibilityEmail">אימייל גורם אחריות</label>
                   <input id="deviceResponsibilityEmail" type="email" value={deviceResponsibilityEmail} onChange={(event) => setDeviceResponsibilityEmail(event.target.value)} placeholder="name@example.com" />
                 </div>
+                <div className="field">
+                  <label htmlFor="gridType">גריד</label>
+                  <select id="gridType" value={gridType} onChange={(event) => setGridType(event.target.value as GridType | "")}>
+                    <option value="">לא הוזן</option>
+                    {gridTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="cameraType">סוג מצלמה</label>
+                  <input id="cameraType" value={cameraType} onChange={(event) => setCameraType(event.target.value)} placeholder="טקסט חופשי" />
+                </div>
                 <div className="field full">
                   <label htmlFor="accessories">עזרים נלווים</label>
                   <textarea id="accessories" value={accessories} onChange={(event) => setAccessories(event.target.value)} />
+                </div>
+                <div className="field full">
+                  <label htmlFor="studentNotes">הערות</label>
+                  <textarea id="studentNotes" value={notes} onChange={(event) => setNotes(event.target.value)} />
                 </div>
                 {isAppleDevice(deviceType) && (
                   <>
@@ -4673,6 +5147,11 @@ function StudentsAdmin({
             <StudentRecordPanel
               student={historyStudent}
               requests={historyRequests}
+              closures={historyClosures}
+              users={users}
+              onOpenRequest={onOpenRequest}
+              onUpdateClosure={onUpdateClosure}
+              onDownloadClosures={() => downloadStudentClosureReport(historyStudent)}
               onClose={() => setHistoryStudentId(null)}
               onEdit={() => {
                 setHistoryStudentId(null);
@@ -4691,18 +5170,53 @@ function StudentsAdmin({
 function StudentRecordPanel({
   student,
   requests,
+  closures,
+  users,
   onClose,
   onEdit,
   onDelete,
-  onRestore
+  onRestore,
+  onOpenRequest,
+  onUpdateClosure,
+  onDownloadClosures
 }: {
   student: Student;
   requests: TechRequest[];
+  closures: RequestClosure[];
+  users: User[];
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
   onRestore?: () => void;
+  onOpenRequest: (requestId: number) => void;
+  onUpdateClosure: (closure: RequestClosure) => boolean | Promise<boolean>;
+  onDownloadClosures: () => void | Promise<void>;
 }) {
+  const [editingClosure, setEditingClosure] = useState<RequestClosure | null>(null);
+  const [editClosureType, setEditClosureType] = useState<ClosureType>("תיקון מחשב");
+  const [editOtherDetail, setEditOtherDetail] = useState("");
+  const [editClosedAt, setEditClosedAt] = useState("");
+
+  function openClosureEditor(closure: RequestClosure) {
+    setEditingClosure(closure);
+    setEditClosureType(closure.closureType);
+    setEditOtherDetail(closure.otherDetail ?? "");
+    setEditClosedAt(toDateTimeLocalValue(closure.closedAtIso));
+  }
+
+  async function saveClosureEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingClosure || !editClosedAt || (editClosureType === "אחר" && !editOtherDetail.trim())) return;
+    const closedAtIso = new Date(editClosedAt).toISOString();
+    const didSave = await onUpdateClosure({
+      ...editingClosure,
+      closureType: editClosureType,
+      otherDetail: editClosureType === "אחר" ? editOtherDetail.trim() : undefined,
+      closedAtIso,
+      closedAt: displayDateTime(closedAtIso)
+    });
+    if (didSave) setEditingClosure(null);
+  }
   const stats = {
     total: requests.length,
     repairs: requests.filter((request) => request.requestType === "תקלה בציוד").length,
@@ -4722,6 +5236,7 @@ function StudentRecordPanel({
           <p>{student.className} · {student.active ? "פעיל/ה" : "מושבת/ת"}</p>
         </div>
         <div className="button-row">
+          <button className="btn" type="button" onClick={onDownloadClosures} disabled={!closures.length}>הורדת דוח סגירות</button>
           {onEdit && <button className="btn" type="button" onClick={onEdit}>עריכה</button>}
           {onRestore && <button className="btn primary" type="button" onClick={onRestore}>החזרה לפעילות</button>}
           <button className="btn" type="button" onClick={onClose}>סגירה</button>
@@ -4763,6 +5278,9 @@ function StudentRecordPanel({
               <div><dt>גורם מטפל</dt><dd>{student.careProvider || "לא הוזן"}</dd></div>
               <div><dt>תאריך הנגשה</dt><dd>{student.accessibilityDate || "לא הוזן"}</dd></div>
               <div><dt>עזרים נלווים</dt><dd>{student.accessories || "לא הוזן"}</dd></div>
+              <div><dt>גריד</dt><dd>{student.gridType || "לא הוזן"}</dd></div>
+              <div><dt>סוג מצלמה</dt><dd>{student.cameraType || "לא הוזן"}</dd></div>
+              <div><dt>הערות</dt><dd>{student.notes || "אין"}</dd></div>
               {isAppleDevice(student.deviceType) && (
                 <>
                   <div><dt>אפל איידי</dt><dd>{student.appleId || "לא הוזן"}</dd></div>
@@ -4782,6 +5300,38 @@ function StudentRecordPanel({
             </dl>
           </section>
         </div>
+
+        <section className="student-record-section full closure-journal-section">
+          <div className="student-history-title">
+            <h4>יומן סגירות וטיפולים שבוצעו</h4>
+            <span>{closures.length} אירועי סגירה</span>
+          </div>
+          {closures.length ? (
+            <div className="closure-journal-list">
+              {closures.map((closure) => {
+                const request = requests.find((item) => item.id === closure.requestId);
+                const closer = users.find((item) => item.id === closure.closedById);
+                return (
+                  <article className="closure-journal-entry" key={closure.id}>
+                    <div className="closure-journal-main">
+                      <span className="closure-date">{closure.closedAt}</span>
+                      <strong>{closureLabel(closure)}</strong>
+                      <span>בקשה #{closure.requestId}{request ? ` · ${request.requestType}` : ""}</span>
+                      {closure.closingMessage && <p><b>הודעת סגירה:</b> {closure.closingMessage}</p>}
+                      <small>נסגרה על ידי {closer?.name ?? "משתמשת לא ידועה"}</small>
+                    </div>
+                    <div className="button-row compact-actions">
+                      <button className="btn" type="button" onClick={() => onOpenRequest(closure.requestId)}>פתיחת הבקשה</button>
+                      <button className="btn" type="button" onClick={() => openClosureEditor(closure)}>עריכת סגירה</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty compact">אין עדיין אירועי סגירה לתלמיד/ה הזה.</div>
+          )}
+        </section>
 
         <section className="student-record-section full">
           <div className="student-history-title">
@@ -4829,6 +5379,43 @@ function StudentRecordPanel({
           </section>
         )}
       </div>
+      {editingClosure && (
+        <div className="modal-backdrop nested-modal-backdrop" role="dialog" aria-modal="true" aria-label="עריכת אירוע סגירה">
+          <section className="modal closure-edit-modal">
+            <div className="panel-header">
+              <div>
+                <h3>עריכת אירוע סגירה</h3>
+                <p>בקשה #{editingClosure.requestId}</p>
+              </div>
+              <button className="btn" type="button" onClick={() => setEditingClosure(null)}>סגירה</button>
+            </div>
+            <div className="panel-body">
+              <form className="form-grid" onSubmit={saveClosureEdit}>
+                <label className="field full">
+                  <span>סוג הסגירה</span>
+                  <select value={editClosureType} onChange={(event) => setEditClosureType(event.target.value as ClosureType)}>
+                    {closureTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </label>
+                {editClosureType === "אחר" && (
+                  <label className="field full">
+                    <span>פירוט סוג הסגירה</span>
+                    <input value={editOtherDetail} onChange={(event) => setEditOtherDetail(event.target.value)} required />
+                  </label>
+                )}
+                <label className="field full">
+                  <span>תאריך ושעת הסגירה</span>
+                  <input type="datetime-local" value={editClosedAt} onChange={(event) => setEditClosedAt(event.target.value)} required />
+                </label>
+                <div className="field full button-row">
+                  <button className="btn" type="button" onClick={() => setEditingClosure(null)}>ביטול</button>
+                  <button className="btn primary" type="submit">שמירת שינוי</button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
