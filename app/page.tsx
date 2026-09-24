@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type Role = "staff" | "handler" | "admin";
@@ -984,23 +984,28 @@ function deviceAvailabilityBlockPayload(block: DeviceAvailabilityBlock) {
 }
 
 export default function Home() {
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<User[]>(isSupabaseConfigured ? [] : initialUsers);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [view, setView] = useState<View>("login");
   const [activeSystem, setActiveSystem] = useState<PortalSystem>("requests");
   const [equipmentPage, setEquipmentPage] = useState<EquipmentPage>("devices");
-  const [students, setStudents] = useState<Student[]>(initialStudents);
-  const [requests, setRequests] = useState<TechRequest[]>(initialRequests);
-  const [treatmentUpdates, setTreatmentUpdates] = useState<TreatmentUpdate[]>(initialTreatmentUpdates);
-  const [requestClosures, setRequestClosures] = useState<RequestClosure[]>(initialRequestClosures);
-  const [schoolDevices, setSchoolDevices] = useState<SchoolDevice[]>(initialSchoolDevices);
-  const [deviceLoans, setDeviceLoans] = useState<DeviceLoan[]>(initialDeviceLoans);
-  const [deviceMaintenance, setDeviceMaintenance] = useState<DeviceMaintenance[]>(initialDeviceMaintenance);
-  const [deviceAvailabilityBlocks, setDeviceAvailabilityBlocks] = useState<DeviceAvailabilityBlock[]>(initialDeviceAvailabilityBlocks);
+  const [students, setStudents] = useState<Student[]>(isSupabaseConfigured ? [] : initialStudents);
+  const [requests, setRequests] = useState<TechRequest[]>(isSupabaseConfigured ? [] : initialRequests);
+  const [treatmentUpdates, setTreatmentUpdates] = useState<TreatmentUpdate[]>(isSupabaseConfigured ? [] : initialTreatmentUpdates);
+  const [requestClosures, setRequestClosures] = useState<RequestClosure[]>(isSupabaseConfigured ? [] : initialRequestClosures);
+  const [schoolDevices, setSchoolDevices] = useState<SchoolDevice[]>(isSupabaseConfigured ? [] : initialSchoolDevices);
+  const [deviceLoans, setDeviceLoans] = useState<DeviceLoan[]>(isSupabaseConfigured ? [] : initialDeviceLoans);
+  const [deviceMaintenance, setDeviceMaintenance] = useState<DeviceMaintenance[]>(isSupabaseConfigured ? [] : initialDeviceMaintenance);
+  const [deviceAvailabilityBlocks, setDeviceAvailabilityBlocks] = useState<DeviceAvailabilityBlock[]>(isSupabaseConfigured ? [] : initialDeviceAvailabilityBlocks);
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [dataLoaded, setDataLoaded] = useState(!isSupabaseConfigured);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const sessionGeneration = useRef(0);
+  const sessionIdentity = useRef<string | null>(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
   const [toast, setToast] = useState("");
@@ -1011,7 +1016,7 @@ export default function Home() {
   const [requestClosuresSupported, setRequestClosuresSupported] = useState(!isSupabaseConfigured);
   const [equipmentSupported, setEquipmentSupported] = useState(!isSupabaseConfigured);
 
-  const authProfile = authEmail
+  const authProfile = authEmail && dataLoaded && !passwordRecovery
     ? users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active) ?? null
     : null;
   const currentUser = (isSupabaseConfigured ? authProfile : users.find((user) => user.id === currentUserId)) ?? null;
@@ -1063,10 +1068,46 @@ export default function Home() {
     showToast(`נכנסת בתור ${user.name} (${roleLabels[user.role]}).`);
   }
 
+  function clearSchoolData() {
+    setUsers([]);
+    setStudents([]);
+    setRequests([]);
+    setTreatmentUpdates([]);
+    setRequestClosures([]);
+    setSchoolDevices([]);
+    setDeviceLoans([]);
+    setDeviceMaintenance([]);
+    setDeviceAvailabilityBlocks([]);
+    setSelectedRequestId(null);
+    setCurrentUserId(null);
+    setDataLoaded(false);
+    setDataLoading(false);
+    setDataError("");
+    setStudentResponsibilityContactsSupported(false);
+    setStudentExtendedFieldsSupported(false);
+    setRequestHandlerSupported(false);
+    setTreatmentLogSupported(false);
+    setRequestClosuresSupported(false);
+    setEquipmentSupported(false);
+    setActiveSystem("requests");
+    setEquipmentPage("devices");
+    setView("login");
+    setToast("");
+  }
+
   async function logout() {
     if (isSupabaseConfigured && supabase) {
-      await supabase.auth.signOut();
+      sessionGeneration.current += 1;
+      clearSchoolData();
       setAuthEmail(null);
+      setPasswordRecovery(false);
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      } catch {
+        setAuthNotice("הנתונים הוסתרו, אך היציאה מהחשבון נכשלה. נסו לצאת שוב.");
+        setDataError("היציאה מהחשבון נכשלה.");
+      }
     }
     setCurrentUserId(null);
     setActiveSystem("requests");
@@ -1074,97 +1115,22 @@ export default function Home() {
     setToast("");
   }
 
-  async function findApprovedUserByEmail(email: string) {
-    const normalizedEmail = email.trim().toLowerCase();
-
-    if (!supabase) {
-      showToast("Supabase לא מוגדר בסביבה הזו.");
-      return null;
-    }
-
-    const { data, error } = await supabase
-      .from("app_users")
-      .select("*")
-      .eq("email", normalizedEmail)
-      .eq("active", true)
-      .maybeSingle();
-
-    if (error) {
-      showToast("לא הצלחנו לבדוק הרשאות משתמשת. נסו שוב בעוד רגע.");
-      setAuthNotice("לא הצלחנו לבדוק הרשאות משתמשת. נסו שוב בעוד רגע.");
-      return null;
-    }
-
-    if (!data) {
-      const message = `המייל ${normalizedEmail} לא רשום כמשתמש פעיל במערכת. פנו לאדמין.`;
-      showToast(message);
-      setAuthNotice(message);
-      return null;
-    }
-
-    return mapUser(data);
-  }
-
-  async function ensureApprovedEmail(email: string) {
-    const approvedUser = await findApprovedUserByEmail(email);
-    return approvedUser?.email.toLowerCase() ?? null;
-  }
-
-  function activateApprovedUser(user: User) {
-    setUsers((items) => {
-      const exists = items.some((item) => item.id === user.id || item.email.toLowerCase() === user.email.toLowerCase());
-      return exists
-        ? items.map((item) => item.id === user.id || item.email.toLowerCase() === user.email.toLowerCase() ? user : item)
-        : [...items, user];
-    });
-    setAuthNotice("");
-    setAuthEmail(user.email);
-    setCurrentUserId(user.id);
-    setActiveSystem("requests");
-    setView(defaultViewForSystem("requests", user.role));
-  }
-
   async function signInWithPassword(email: string, password: string) {
-    const approvedUser = await findApprovedUserByEmail(email);
-    if (!approvedUser || !supabase) return;
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email: approvedUser.email.toLowerCase(),
-      password
-    });
-
-    if (error) {
+    if (!supabase) return;
+    setAuthNotice("");
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(), password
+      });
+      if (error) throw error;
+    } catch {
       showToast("הכניסה נכשלה. בדקו מייל וסיסמה, או הגדירו סיסמה חדשה.");
       setAuthNotice("הכניסה נכשלה. בדקו מייל וסיסמה, או הגדירו סיסמה חדשה.");
-      return;
     }
-
-    activateApprovedUser(approvedUser);
-    showToast("נכנסת למערכת.");
-  }
-
-  async function createPassword(email: string, password: string) {
-    const normalizedEmail = await ensureApprovedEmail(email);
-    if (!normalizedEmail || !supabase) return;
-
-    const { error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password,
-      options: {
-        emailRedirectTo: window.location.origin
-      }
-    });
-
-    if (error) {
-      showToast("לא הצלחנו ליצור סיסמה. אם כבר נוצר חשבון, השתמשו באיפוס סיסמה.");
-      return;
-    }
-
-    showToast("החשבון נוצר. אם נשלח מייל אישור, אשרו אותו ואז התחברו עם הסיסמה.");
   }
 
   async function sendPasswordReset(email: string) {
-    const normalizedEmail = await ensureApprovedEmail(email);
+    const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !supabase) return;
 
     const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
@@ -1176,7 +1142,7 @@ export default function Home() {
       return;
     }
 
-    showToast("שלחנו קישור לאיפוס סיסמה למייל.");
+    setAuthNotice("אם קיים חשבון מתאים, יישלח אליו קישור לאיפוס סיסמה.");
   }
 
   async function updatePassword(password: string) {
@@ -1200,29 +1166,25 @@ export default function Home() {
 
     const authClient = supabase;
 
-    authClient.auth.getSession().then(async ({ data }) => {
-      if (data.session?.user.email) {
-        setAuthEmail(data.session.user.email);
-        setAuthLoading(false);
-        return;
-      }
-
-      const { data: userData } = await authClient.auth.getUser();
-      setAuthEmail(userData.user?.email ?? null);
-      setAuthLoading(false);
-    });
-
     const { data: listener } = authClient.auth.onAuthStateChange((event, session) => {
+      const identity = session?.user.email ? `${session.user.id}:${session.user.email.toLowerCase()}` : null;
+      if (identity !== sessionIdentity.current || event === "SIGNED_OUT" || event === "PASSWORD_RECOVERY") {
+        sessionIdentity.current = identity;
+        sessionGeneration.current += 1;
+        clearSchoolData();
+      }
       if (event === "PASSWORD_RECOVERY") {
         setPasswordRecovery(true);
         setActiveSystem("requests");
         setView("login");
       }
-      setAuthEmail(session?.user.email ?? null);
+      setAuthEmail(session?.user.email?.toLowerCase() ?? null);
+      setAuthLoading(false);
       if (session?.user.email) {
         setAuthNotice("");
       }
       if (!session) {
+        setPasswordRecovery(false);
         setCurrentUserId(null);
         setView("login");
       }
@@ -1232,97 +1194,84 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || authLoading || !dataLoaded) return;
+    if (!isSupabaseConfigured || !supabase || authLoading || !authEmail || passwordRecovery) return;
+    const authClient = supabase;
+    const generation = sessionGeneration.current;
     let cancelled = false;
-
-    async function syncAuthenticatedUser() {
-      if (!authEmail) {
-        setCurrentUserId(null);
-        setActiveSystem("requests");
-        setView("login");
-        setAuthNotice("");
-        return;
-      }
-
-      const localApprovedUser = users.find((user) => user.email.toLowerCase() === authEmail.toLowerCase() && user.active);
-      const approvedUser = localApprovedUser ?? await findApprovedUserByEmail(authEmail);
-
-      if (cancelled) return;
-
-      if (!approvedUser) {
-        setCurrentUserId(null);
-        setActiveSystem("requests");
-        setView("login");
-        return;
-      }
-
-      if (!localApprovedUser) {
-        setUsers((items) => {
-          const exists = items.some((item) => item.id === approvedUser.id || item.email.toLowerCase() === approvedUser.email.toLowerCase());
-          return exists
-            ? items.map((item) => item.id === approvedUser.id || item.email.toLowerCase() === approvedUser.email.toLowerCase() ? approvedUser : item)
-            : [...items, approvedUser];
-        });
-      }
-      setAuthNotice("");
-      setCurrentUserId(approvedUser.id);
-      setView((currentView) => currentView === "login" ? defaultViewForSystem("requests", approvedUser.role) : currentView);
-      setActiveSystem((currentSystem) => availableSystemsForRole(approvedUser.role).includes(currentSystem) ? currentSystem : "requests");
-    }
-
-    syncAuthenticatedUser();
-    return () => {
-      cancelled = true;
-    };
-  }, [authEmail, authLoading, dataLoaded, users]);
-
-  useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
+    const isCurrent = () => !cancelled && generation === sessionGeneration.current;
 
     async function loadData() {
-      const [usersResult, studentsResult, requestsResult, contactColumnsResult, extendedStudentColumnsResult, handlerColumnResult, treatmentUpdatesResult, requestClosuresResult, devicesResult, loansResult, maintenanceResult, availabilityResult] = await Promise.all([
-        supabase!.from("app_users").select("*").order("id"),
-        supabase!.from("students").select("*").order("full_name"),
-        supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
-        supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1),
-        supabase!.from("students").select("notes, grid_type, camera_type").limit(1),
-        supabase!.from("tech_requests").select("handler_id").limit(1),
-        supabase!.from("request_treatment_updates").select("*").order("created_at", { ascending: true }),
-        supabase!.from("request_closures").select("*").order("closed_at", { ascending: false }),
-        supabase!.from("school_devices").select("*").order("name"),
-        supabase!.from("school_device_loans").select("*").order("checked_out_at", { ascending: false }),
-        supabase!.from("school_device_maintenance").select("*").order("created_at", { ascending: false }),
-        supabase!.from("school_device_availability_blocks").select("*").order("day_of_week")
-      ]);
+      clearSchoolData();
+      setDataLoading(true);
+      try {
+        const { data: authData, error: authError } = await authClient.auth.getUser();
+        if (!isCurrent()) return;
+        if (authError || authData.user?.email?.toLowerCase() !== authEmail) {
+          throw new Error("ההתחברות לא אומתה. נסו שוב או התחברו מחדש.");
+        }
+        const { data: profile, error: profileError } = await authClient.from("app_users")
+          .select("*").eq("email", authEmail).eq("active", true).maybeSingle();
+        if (!isCurrent()) return;
+        if (profileError) throw new Error("לא הצלחנו לבדוק את הרשאות המשתמשת. נסו שוב.");
+        if (!profile || !["staff", "handler", "admin"].includes(profile.role)) {
+          throw new Error("החשבון אינו מאושר כמשתמשת פעילה במערכת. פנו לאדמין.");
+        }
 
-      if (usersResult.error || studentsResult.error || requestsResult.error) {
-        showToast("לא הצלחתי לטעון נתונים מ-Supabase, מוצגים נתוני דמו מקומיים.");
+        const [usersResult, studentsResult, requestsResult, contactColumnsResult, extendedStudentColumnsResult, handlerColumnResult, treatmentUpdatesResult, requestClosuresResult, devicesResult, loansResult, maintenanceResult, availabilityResult] = await Promise.all([
+          supabase!.from("app_users").select("*").order("id"),
+          supabase!.from("students").select("*").order("full_name"),
+          supabase!.from("tech_requests").select("*").order("created_at", { ascending: false }),
+          supabase!.from("students").select("device_responsibility_phone, device_responsibility_email").limit(1),
+          supabase!.from("students").select("notes, grid_type, camera_type").limit(1),
+          supabase!.from("tech_requests").select("handler_id").limit(1),
+          supabase!.from("request_treatment_updates").select("*").order("created_at", { ascending: true }),
+          supabase!.from("request_closures").select("*").order("closed_at", { ascending: false }),
+          supabase!.from("school_devices").select("*").order("name"),
+          supabase!.from("school_device_loans").select("*").order("checked_out_at", { ascending: false }),
+          supabase!.from("school_device_maintenance").select("*").order("created_at", { ascending: false }),
+          supabase!.from("school_device_availability_blocks").select("*").order("day_of_week")
+        ]);
+        if (!isCurrent()) return;
+
+        if (usersResult.error || studentsResult.error || requestsResult.error) {
+          throw new Error("טעינת הנתונים נכשלה. נסו שוב, הנתונים הקיימים לא השתנו.");
+        }
+        const approvedProfile = usersResult.data?.find((user) => user.id === profile.id && user.active);
+        if (!approvedProfile || !["staff", "handler", "admin"].includes(approvedProfile.role)) {
+          throw new Error("החשבון אינו מאושר כמשתמשת פעילה במערכת. פנו לאדמין.");
+        }
+
+        setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
+        setStudentExtendedFieldsSupported(!extendedStudentColumnsResult.error);
+        setRequestHandlerSupported(!handlerColumnResult.error);
+        setTreatmentLogSupported(!treatmentUpdatesResult.error);
+        setRequestClosuresSupported(!requestClosuresResult.error);
+        setEquipmentSupported(!devicesResult.error && !loansResult.error && !maintenanceResult.error && !availabilityResult.error);
+        setUsers((usersResult.data ?? []).map(mapUser));
+        setStudents((studentsResult.data ?? []).map(mapStudent));
+        setRequests((requestsResult.data ?? []).map(mapRequest));
+        setTreatmentUpdates(treatmentUpdatesResult.error ? [] : (treatmentUpdatesResult.data ?? []).map(mapTreatmentUpdate));
+        setRequestClosures(requestClosuresResult.error ? [] : (requestClosuresResult.data ?? []).map(mapRequestClosure));
+        if (!devicesResult.error) setSchoolDevices((devicesResult.data ?? []).map(mapSchoolDevice));
+        if (!loansResult.error) setDeviceLoans((loansResult.data ?? []).map(mapDeviceLoan));
+        if (!maintenanceResult.error) setDeviceMaintenance((maintenanceResult.data ?? []).map(mapDeviceMaintenance));
+        if (!availabilityResult.error) setDeviceAvailabilityBlocks((availabilityResult.data ?? []).map(mapDeviceAvailabilityBlock));
+        setSelectedRequestId(null);
         setDataLoaded(true);
-        return;
+        setCurrentUserId(Number(approvedProfile.id));
+        setAuthNotice("");
+        setView(defaultViewForSystem("requests", approvedProfile.role));
+      } catch (error) {
+        if (!isCurrent()) return;
+        setDataError(error instanceof Error ? error.message : "טעינת הנתונים נכשלה. נסו שוב.");
+      } finally {
+        if (isCurrent()) setDataLoading(false);
       }
-
-      setStudentResponsibilityContactsSupported(!contactColumnsResult.error);
-      setStudentExtendedFieldsSupported(!extendedStudentColumnsResult.error);
-      setRequestHandlerSupported(!handlerColumnResult.error);
-      setTreatmentLogSupported(!treatmentUpdatesResult.error);
-      setRequestClosuresSupported(!requestClosuresResult.error);
-      setEquipmentSupported(!devicesResult.error && !loansResult.error && !maintenanceResult.error && !availabilityResult.error);
-      setUsers((usersResult.data ?? []).map(mapUser));
-      setStudents((studentsResult.data ?? []).map(mapStudent));
-      setRequests((requestsResult.data ?? []).map(mapRequest));
-      setTreatmentUpdates(treatmentUpdatesResult.error ? [] : (treatmentUpdatesResult.data ?? []).map(mapTreatmentUpdate));
-      setRequestClosures(requestClosuresResult.error ? [] : (requestClosuresResult.data ?? []).map(mapRequestClosure));
-      if (!devicesResult.error) setSchoolDevices((devicesResult.data ?? []).map(mapSchoolDevice));
-      if (!loansResult.error) setDeviceLoans((loansResult.data ?? []).map(mapDeviceLoan));
-      if (!maintenanceResult.error) setDeviceMaintenance((maintenanceResult.data ?? []).map(mapDeviceMaintenance));
-      if (!availabilityResult.error) setDeviceAvailabilityBlocks((availabilityResult.data ?? []).map(mapDeviceAvailabilityBlock));
-      setSelectedRequestId(null);
-      setDataLoaded(true);
-      showToast("הנתונים נטענו מהדאטה בייס.");
     }
 
     loadData();
-  }, []);
+    return () => { cancelled = true; };
+  }, [authEmail, authLoading, passwordRecovery, loadAttempt]);
 
   async function createRequest(request: TechRequest) {
     if (!isSupabaseConfigured || !supabase) {
@@ -1368,6 +1317,29 @@ export default function Home() {
     setSelectedRequestId(saved.id);
     showToast(successMessage);
     return saved;
+  }
+
+  async function assignRequestHandler(request: TechRequest, handlerId?: number) {
+    if (role !== "admin") return;
+    if (handlerId && !users.some((user) => user.id === handlerId && user.active && user.role !== "staff")) return;
+    if (!isSupabaseConfigured || !supabase) {
+      setRequests((items) => items.map((item) => item.id === request.id ? { ...item, handlerId } : item));
+      return;
+    }
+    if (!requestHandlerSupported) {
+      showToast("חסר עדכון מסד הנתונים לשיוך מטפלות. ההקצאה לא נשמרה.");
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from("tech_requests")
+        .update({ handler_id: handlerId ?? null, updated_at: new Date().toISOString() })
+        .eq("id", request.id).select("*").single();
+      if (error || !data) throw error;
+      setRequests((items) => items.map((item) => item.id === request.id ? mapRequest(data) : item));
+      showToast(handlerId ? "המטפלת הוקצתה לבקשה." : "שיוך המטפלת הוסר.");
+    } catch {
+      showToast("שמירת ההקצאה נכשלה. נסו שוב.");
+    }
   }
 
   async function addTreatmentUpdate(request: TechRequest, note: string) {
@@ -2218,18 +2190,29 @@ export default function Home() {
         )}
 
         {view === "login" && (
+          dataError ? (
+            <section className="panel login-card" role="alert">
+              <div className="panel-body">
+                <p>{dataError}</p>
+                <div className="button-row">
+                  {authEmail && <button className="btn primary" type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>ניסיון חוזר</button>}
+                  <button className="btn" type="button" onClick={logout}>יציאה מהחשבון</button>
+                </div>
+              </div>
+            </section>
+          ) : (
           <LoginScreen
             users={users}
             onLogin={login}
             onPasswordLogin={signInWithPassword}
-            onCreatePassword={createPassword}
             onPasswordReset={sendPasswordReset}
             onUpdatePassword={updatePassword}
             isPasswordMode={isSupabaseConfigured}
             isPasswordRecovery={passwordRecovery}
-            isLoading={authLoading || (isSupabaseConfigured && !dataLoaded)}
+            isLoading={authLoading || dataLoading || Boolean(authEmail && !passwordRecovery && !dataLoaded)}
             authNotice={authNotice}
           />
+          )
         )}
         {view === "myRequests" && currentUser && (
           <MyRequests
@@ -2278,6 +2261,7 @@ export default function Home() {
               await updateRequest(updated);
             }}
             onClose={closeRequest}
+            onAssignHandler={assignRequestHandler}
             onDelete={deleteRequest}
             onAddTreatmentUpdate={addTreatmentUpdate}
           />
@@ -2438,7 +2422,6 @@ function LoginScreen({
   users,
   onLogin,
   onPasswordLogin,
-  onCreatePassword,
   onPasswordReset,
   onUpdatePassword,
   isPasswordMode,
@@ -2449,7 +2432,6 @@ function LoginScreen({
   users: User[];
   onLogin: (userId: number) => void;
   onPasswordLogin: (email: string, password: string) => void | Promise<void>;
-  onCreatePassword: (email: string, password: string) => void | Promise<void>;
   onPasswordReset: (email: string) => void | Promise<void>;
   onUpdatePassword: (password: string) => void | Promise<void>;
   isPasswordMode: boolean;
@@ -2462,24 +2444,28 @@ function LoginScreen({
   const selectedUser = activeUsers.find((user) => user.id === selectedUserId);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"login" | "create" | "reset">("login");
+  const [mode, setMode] = useState<"login" | "reset">("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
-
+    setSubmitError("");
+    try {
     if (isPasswordRecovery) {
       await onUpdatePassword(password);
     } else if (mode === "login") {
       await onPasswordLogin(email, password);
-    } else if (mode === "create") {
-      await onCreatePassword(email, password);
     } else {
       await onPasswordReset(email);
     }
 
-    setIsSubmitting(false);
+    } catch {
+      setSubmitError("הפעולה נכשלה. בדקו את החיבור ונסו שוב.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (isLoading) {
@@ -2495,9 +2481,7 @@ function LoginScreen({
     const title = isPasswordRecovery ? "הגדרת סיסמה חדשה" : "כניסה למערכת";
     const subtitle = isPasswordRecovery
       ? "בחרו סיסמה חדשה לחשבון."
-      : mode === "create"
-        ? "הגדירו סיסמה למייל שכבר אושר במערכת."
-        : mode === "reset"
+      : mode === "reset"
           ? "הכניסו מייל ונשלח קישור לאיפוס סיסמה."
           : "היכנסו עם מייל וסיסמה.";
 
@@ -2507,6 +2491,7 @@ function LoginScreen({
         <section className="panel login-card">
           <div className="panel-body">
             {authNotice && <div className="toast">{authNotice}</div>}
+            {submitError && <p role="alert">{submitError}</p>}
             <form className="form-grid" onSubmit={submitPassword}>
               {!isPasswordRecovery && (
                 <div className="field full">
@@ -2522,7 +2507,7 @@ function LoginScreen({
                   />
                 </div>
               )}
-              {mode !== "reset" && (
+              {(isPasswordRecovery || mode !== "reset") && (
                 <div className="field full">
                   <label htmlFor="loginPassword">סיסמה</label>
                   <input
@@ -2530,7 +2515,7 @@ function LoginScreen({
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    autoComplete={isPasswordRecovery || mode === "create" ? "new-password" : "current-password"}
+                    autoComplete={isPasswordRecovery ? "new-password" : "current-password"}
                     minLength={6}
                     required
                   />
@@ -2542,9 +2527,7 @@ function LoginScreen({
                     ? "שומר..."
                     : isPasswordRecovery
                       ? "עדכון סיסמה"
-                      : mode === "create"
-                        ? "יצירת סיסמה"
-                        : mode === "reset"
+                      : mode === "reset"
                           ? "שליחת קישור איפוס"
                           : "כניסה"}
                 </button>
@@ -2555,7 +2538,6 @@ function LoginScreen({
                 <p className="inline-hint">המערכת פתוחה רק למיילים שאושרו מראש על ידי אדמין.</p>
                 <div className="button-row login-actions" style={{ marginTop: 12 }}>
                   <button className="btn" type="button" onClick={() => setMode("login")}>כניסה</button>
-                  <button className="btn" type="button" onClick={() => setMode("create")}>יצירת סיסמה</button>
                   <button className="btn" type="button" onClick={() => setMode("reset")}>איפוס סיסמה</button>
                 </div>
               </>
@@ -3662,6 +3644,7 @@ function ManageRequests({
   treatmentUpdates,
   currentUser,
   onSelect,
+  onAssignHandler,
   onUpdate,
   onClose,
   onDelete,
@@ -3676,6 +3659,7 @@ function ManageRequests({
   treatmentUpdates: TreatmentUpdate[];
   currentUser: User;
   onSelect: (id: number) => void;
+  onAssignHandler: (request: TechRequest, handlerId?: number) => Promise<void>;
   onUpdate: (request: TechRequest) => void | Promise<void>;
   onClose: (request: TechRequest, shouldSendEmail: boolean, closure: ClosureDraft) => boolean | Promise<boolean>;
   onDelete: (request: TechRequest) => void | Promise<void>;
@@ -3714,7 +3698,7 @@ function ManageRequests({
 
   function assignHandlerOnProgress(updated: TechRequest) {
     const original = requests.find((request) => request.id === updated.id);
-    if (updated.status === "progress" && (!updated.handlerId || original?.status !== "progress")) {
+    if (updated.status === "progress" && !updated.handlerId && original?.status !== "progress") {
       return { ...updated, handlerId: currentUser.id };
     }
     return updated;
@@ -3841,6 +3825,7 @@ function ManageRequests({
                   request={request}
                   requester={users.find((user) => user.id === request.requesterId)}
                   handler={users.find((user) => user.id === request.handlerId)}
+                  onAssignHandler={onAssignHandler}
                   student={request.id === selectedRequest?.id ? selectedRequestStudent : undefined}
                   onUpdate={(updated) => onUpdate(assignHandlerOnProgress(updated))}
                   onClose={setClosingRequest}
@@ -3956,6 +3941,7 @@ function RequestDetails({
   request,
   requester,
   handler,
+  onAssignHandler,
   student,
   onUpdate,
   onClose,
@@ -3970,6 +3956,7 @@ function RequestDetails({
   request?: TechRequest;
   requester?: User;
   handler?: User;
+  onAssignHandler: (request: TechRequest, handlerId?: number) => Promise<void>;
   student?: Student;
   onUpdate: (request: TechRequest) => void | Promise<void>;
   onClose: (request: TechRequest) => void | Promise<void>;
@@ -3983,6 +3970,7 @@ function RequestDetails({
 }) {
   const [note, setNote] = useState("");
   const [treatmentNote, setTreatmentNote] = useState("");
+  const [assigningHandler, setAssigningHandler] = useState(false);
 
   if (!request) {
     return (
@@ -4016,6 +4004,34 @@ function RequestDetails({
           <span>מטפל</span>
           <strong>{handler?.name ?? "טרם שובץ"}</strong>
           {handler?.email && <p>{handler.email}</p>}
+          {currentUser.role === "admin" && (
+            <div className="field">
+              <label htmlFor={`handler-${request.id}`}>הקצאת מטפלת</label>
+              <select
+                id={`handler-${request.id}`}
+                value={request.handlerId ?? ""}
+                disabled={assigningHandler}
+                onChange={async (event) => {
+                  const handlerId = event.target.value ? Number(event.target.value) : undefined;
+                  setAssigningHandler(true);
+                  try {
+                    await onAssignHandler(request, handlerId);
+                  } finally {
+                    setAssigningHandler(false);
+                  }
+                }}
+              >
+                <option value="">ללא שיוך</option>
+                {handler && (!handler.active || handler.role === "staff") && (
+                  <option value={handler.id} disabled>{handler.name} (לא זמינה להקצאה)</option>
+                )}
+                {treatmentAuthors.filter((user) => user.active && user.role !== "staff").map((user) => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </select>
+              {assigningHandler && <span role="status">שומרת הקצאה...</span>}
+            </div>
+          )}
         </div>
         <div className="detail-item">
           <span>סוג הבקשה</span>
