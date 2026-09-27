@@ -1,6 +1,6 @@
 # Roadmap - Mashi Tech Requests
 
-Last updated: 2026-09-24
+Last updated: 2026-09-27
 
 ## Active Roadmap - Reliability And Access Control
 
@@ -10,7 +10,7 @@ Status: all phases below are planned unless explicitly marked otherwise. Impleme
 
 ### Phase 0 - Manual Handler Assignment
 
-Status: implemented locally; not pushed or verified against the live database.
+Status: pushed to origin/main in commit 1df7e1a; deployment and live database behavior have not been independently verified.
 
 - [x] Add an admin-only assignment selector inside request details, including removal of assignment.
 - [x] Offer active handlers and admins; save only assignment and update timestamp.
@@ -27,6 +27,10 @@ Goal: enforce access at the database/server, including direct requests that bypa
 Increment 1 (local implementation, 2026-09-24): authenticate before profile lookup and school data loading; clear data on session changes; ignore stale load responses; replace database-load demo fallback with retry; keep password reset without a pre-login profile read. Public sign-up UI was removed: existing accounts use password reset and new accounts are created by admins. No SQL/policy changes or deployment are included in this increment. Database enforcement, field filtering, and Auth-ID linking remain pending.
 
 Verification: eight mocked browser scenarios passed (anonymous/invalid login, valid login and reload/logout, unapproved account, failed load/retry, delayed response after logout, password-reset request, recovery/password update, mobile layout). The mobile login screenshot was visually inspected. Tests intercept all Supabase traffic and send no real emails.
+
+Release update: Increment 1 was pushed to origin/main in commit 1df7e1a. Production deployment and real-account verification remain unconfirmed.
+
+Increment 2 (local preparation, 2026-09-27): adapt the health endpoint to a server-only service key; prepare a transactional migration denying anonymous access to the nine audited tables and removing browser-role TRUNCATE privileges. Fourteen in-memory PostgreSQL scenarios, six isolated health-route tests, and TypeScript validation passed. Actual SQL and RLS behavior were tested against synthetic fixtures; isolated Supabase integration and real-account verification remain pending. See `supabase/ACCESS_ROLLOUT.md` for gates. This is a deliberately narrow boundary: active-account checks, Auth-ID linking, authenticated role/field restrictions, and closure policies are NOT fixed by it. Do not run the draft in production yet.
 
 Proposed role matrix, to finalize before implementation:
 
@@ -114,6 +118,22 @@ Acceptance: verify a dataset larger than one response page; report counts match 
 Acceptance: failed saves retain input and explain recovery; double clicks do not duplicate operations; all confirmation dialogs are in-app; primary actions remain reachable on mobile with the keyboard open.
 
 ## Delivery Order And Release Gate
+
+Dependency hardening (local, 2026-09-27): upgraded Next.js from 15.5.19 to pinned
+15.5.26, and updated its compatible Sharp dependency from 0.34.5 to 0.35.4.
+The [15.5.26 release](https://github.com/vercel/next.js/releases/tag/v15.5.26)
+stays on the existing Next.js major version. Production build, 14 PostgreSQL
+scenarios, six health tests, eight mocked browser auth scenarios, and a synthetic
+Sharp PNG/resize/WebP check passed. No production deployment or SQL was performed.
+
+After the update, `npm audit` reports zero critical findings, three high and three
+moderate package findings. Remaining packages: PostCSS, Nano ID, Nodemailer,
+ExcelJS, UUID, and a transitive moderate finding on Next.js through PostCSS.
+The installed Next.js still pins PostCSS 8.4.31; evaluating a scoped override or
+a separately tested framework upgrade is a follow-up, not part of this patch.
+These are advisory matches, not verified exploitation or assessed production
+reachability. Review targeted upgrades; do not run `npm audit fix --force`
+(the ExcelJS recommendation includes a major downgrade).
 
 Finish Phase 0 verification, then Phase 1, Phases 2-3, Phase 4, and Phases 5-6. The assignment fix can ship independently after its checks; it does not complete database authorization.
 

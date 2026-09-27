@@ -104,7 +104,7 @@ The app exposes a lightweight health endpoint:
 /api/health
 ```
 
-It performs a minimal Supabase database read and returns only general status, for example:
+It performs a server-only Supabase HEAD query (no rows or counts returned) and returns only general status, for example:
 
 ```json
 { "ok": true, "database": "ok", "checkedAt": "2026-07-22T06:00:00.000Z" }
@@ -113,3 +113,12 @@ It performs a minimal Supabase database read and returns only general status, fo
 `vercel.json` registers a daily Vercel Cron Job that calls this endpoint once per day. On the Vercel Hobby plan, cron jobs are limited to once per day, which is enough for a basic availability check.
 
 After deployment, the cron can be viewed in Vercel Project Settings -> Cron Jobs.
+
+The endpoint requires `SUPABASE_SERVICE_ROLE_KEY` as well as `NEXT_PUBLIC_SUPABASE_URL`.
+It deliberately does not fall back to the anonymous key: database availability must
+not depend on anonymous access to school data. Keep the service key server-only.
+Missing configuration returns HTTP 500 with `database: "not_configured"`; database
+and network failures return HTTP 503 without internal error details. A successful
+health check verifies connectivity, not role policies or authenticated workflows.
+
+For the staged anonymous-access migration, see `supabase/ACCESS_ROLLOUT.md`.

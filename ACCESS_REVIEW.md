@@ -57,7 +57,7 @@ The supplied output does not independently verify the currently deployed Vercel 
 
 ## Scope Of This Step
 
-The read-only exposure check and owner-supplied metadata inspection are complete. Implementation and role-based verification remain pending. The local handler-assignment fix remains separate and unpushed. No production setting or policy was changed.
+The read-only exposure check and owner-supplied metadata inspection are complete. Database implementation and role-based verification remain pending. The handler-assignment fix and Increment 1 were pushed in commit 1df7e1a; deployment was not independently verified. No production setting or policy was changed by this work.
 
 The coordinated fix must both remove the eight permissive policies and supply explicit closure policies. Do not fix the closure failure by adding another unrestricted policy, and do not revoke anonymous access before the application's pre-login reads have been removed. Production rollout requires the matched app/SQL changes and verified role tests.
 
@@ -65,6 +65,32 @@ The coordinated fix must both remove the eight permissive policies and supply ex
 
 Implemented authenticated profile lookup before school data reads, empty initial state for configured databases, cancellation of obsolete load responses, clearing data on session changes, and retryable load failures instead of demo data. Password reset no longer queries profiles before authentication. Public self-registration was removed from the login screen; all 22 existing profiles already have confirmed Auth accounts, and admins create new accounts through the existing admin API.
 
-This increment does not enforce database permissions, restrict fields per role, backfill Auth IDs, or fix closure policies. It is not deployed. Browser regression tests in `tests/auth-flow.cjs` intercept all Supabase requests and never use real accounts or send mail. Before release, verify an authorized account in the actual deployment environment as well.
+This increment does not enforce database permissions, restrict fields per role, backfill Auth IDs, or fix closure policies. It was pushed in commit 1df7e1a; deployment is unverified. Browser regression tests in `tests/auth-flow.cjs` intercept all Supabase requests and never use real accounts or send mail. Verify an authorized account in the actual deployment environment as well.
 
 All eight browser scenarios passed against the local dev server, including recovery links and stale responses after logout. Mobile layout was also inspected at 390 x 844. To repeat, start the dev server on port 3006, make `playwright` available in Node's module path, and run `node tests/auth-flow.cjs`. Set `AUTH_TEST_BROWSER_CHANNEL=chrome` to use an installed Chrome browser. `AUTH_TEST_URL` may point only to localhost or 127.0.0.1.
+
+## Increment 2 - Anonymous Boundary Preparation (2026-09-27)
+
+The local health endpoint now uses the server service key without an anonymous
+fallback, returns no counts or row data, and sanitizes network failures. Six
+mocked route tests and TypeScript validation passed.
+
+`supabase/20260927_block_anonymous_access.sql` is a locally tested draft. It revokes
+PUBLIC/anon table grants, adds restrictive anonymous-deny policies, and revokes
+authenticated TRUNCATE. It keeps existing authenticated policies intact and
+aborts transactionally on missing tables or unexpected effective grants.
+
+All 14 PostgreSQL scenarios passed against in-memory PGlite using synthetic
+fixtures that reproduce the audited grants and policies. They execute the real
+migration and test anonymous CRUD/TRUNCATE denial, existing authenticated access,
+service reads, unchanged rows/closure restrictions, repeat execution, table and
+column grant defense, and rollback on missing tables or unexpected privileges.
+Run `npm run test:access` to repeat them together with the six health tests.
+Supabase Auth/PostgREST and the full deployed schema were not exercised; isolated
+Supabase integration remains a release gate.
+
+This is an intermediate reduction of exposure, not completion of Phase 1.
+Authenticated users remain overprivileged; disabled/unapproved authenticated
+accounts, role escalation, private fields, exposed views/functions, and closure
+access still need database enforcement. No production SQL or deployment was
+performed in this increment. See `supabase/ACCESS_ROLLOUT.md` before rollout.

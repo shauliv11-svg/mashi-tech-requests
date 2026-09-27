@@ -5,13 +5,13 @@ export const dynamic = "force-dynamic";
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !serviceRoleKey) {
     return null;
   }
 
-  return createClient(supabaseUrl, supabaseAnonKey, {
+  return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false
@@ -30,12 +30,18 @@ export async function GET() {
     );
   }
 
-  const { error } = await supabase
-    .from("app_users")
-    .select("id", { count: "exact", head: true })
-    .limit(1);
+  let databaseError = false;
+  try {
+    const { error } = await supabase
+      .from("app_users")
+      .select("id", { head: true })
+      .limit(1);
+    databaseError = Boolean(error);
+  } catch {
+    databaseError = true;
+  }
 
-  if (error) {
+  if (databaseError) {
     return NextResponse.json(
       { ok: false, database: "error", checkedAt },
       { status: 503, headers: { "Cache-Control": "no-store" } }

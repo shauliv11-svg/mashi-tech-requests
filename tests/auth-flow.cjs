@@ -134,8 +134,10 @@ const session = { access_token: token, refresh_token: 'test-refresh', token_type
       assert.equal(calls.filter((call) => call.path.startsWith('/rest/')).length, 0);
     });
     await scenario('recovery defers school data until password update', async ({ page, calls }) => {
+      // Open the recovery link as a fresh document, like a link from an email.
+      // Updating only the hash on the running app then reloading races Auth init.
+      await page.goto('about:blank');
       await page.goto(`${baseURL}/#access_token=${token}&refresh_token=test-refresh&expires_in=3600&token_type=bearer&type=recovery`);
-      await page.reload();
       await page.getByRole('button', { name: 'עדכון סיסמה', exact: true }).waitFor();
       assert.equal(calls.filter((call) => call.path.startsWith('/rest/')).length, 0);
       await page.locator('#loginPassword').fill('updated-test-password');
