@@ -48,7 +48,7 @@ Proposed role matrix, to finalize before implementation:
 
 - [x] Probe the configured database read-only: anonymous HEAD requests expose counts for users, students, requests, and school equipment. Evidence and limits are recorded in `ACCESS_REVIEW.md`.
 - [x] Inspect owner-supplied policies/grants and Auth mapping (2026-09-24): eight permissive tables; closures have RLS with no policies; all 22 active profiles match confirmed Auth accounts, including five admins; no Auth-ID column yet.
-- [ ] Independently confirm the deployed Vercel database matches the tested target.
+- [x] Confirm the deployed browser's Supabase target matches the locally tested project (2026-09-27, eight public JavaScript assets inspected). Server environment target was not independently inspected.
 - [ ] Link app profiles to stable Auth user IDs, with verified mapping of existing accounts.
 - [x] Implement locally: authenticate before reading profiles/data, remove pre-login profile lookup, and reload data after session changes.
 - [ ] Verify Increment 1 with real authorized test accounts before release; mocked browser tests do not verify production Auth/SMTP settings.

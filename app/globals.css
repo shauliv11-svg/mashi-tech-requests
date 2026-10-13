@@ -698,6 +698,45 @@ th {
   font-weight: 700;
 }
 
+.close-request-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(760px, calc(100dvh - 40px));
+  overflow: hidden;
+}
+
+.close-request-modal > .panel-header,
+.close-request-actions {
+  flex: 0 0 auto;
+}
+
+.close-request-modal > .panel-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.close-request-actions {
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.close-request-error {
+  margin: 0 0 10px;
+  color: #9c2433;
+  overflow-wrap: anywhere;
+  max-height: 90px;
+  overflow-y: auto;
+}
+
+@media (max-width: 920px) {
+  .close-request-backdrop .close-request-modal {
+    max-height: calc(100dvh - 12px);
+  }
+}
+
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: 1fr;

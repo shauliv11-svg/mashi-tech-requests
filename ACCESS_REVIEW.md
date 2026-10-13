@@ -1,5 +1,19 @@
 # Access Review - 2026-09-24
 
+## Closure Repair Update - 2026-10-13
+
+The owner ran `20261013_fix_request_closure_policies.sql` and supplied a result
+showing closure_insert, closure_read, closure_rollback, and closure_update for
+authenticated. This confirms the expected policy names/commands are installed;
+an actual authenticated production closure has not been exercised by the agent.
+The earlier empty-policy finding below is historical for this table. The broader
+anonymous-access migration and full role hardening remain separate and pending.
+
+Local verification: 14 closure-policy PostgreSQL scenarios, four mocked browser
+closure scenarios (short desktop, mobile, permission failure/retry, email network
+failure), TypeScript and production build passed. The modal now scrolls internally,
+keeps actions visible, and shows failures without discarding entered text.
+
 ## Verified Against The Configured Database
 
 Used the locally configured Supabase URL and public anon key with session persistence disabled. Sent read-only HEAD queries requesting exact counts and selecting only `id`. No row contents were downloaded, no authenticated account was used, and no writes or notifications were attempted.
@@ -70,6 +84,13 @@ This increment does not enforce database permissions, restrict fields per role, 
 All eight browser scenarios passed against the local dev server, including recovery links and stale responses after logout. Mobile layout was also inspected at 390 x 844. To repeat, start the dev server on port 3006, make `playwright` available in Node's module path, and run `node tests/auth-flow.cjs`. Set `AUTH_TEST_BROWSER_CHANNEL=chrome` to use an installed Chrome browser. `AUTH_TEST_URL` may point only to localhost or 127.0.0.1.
 
 ## Increment 2 - Anonymous Boundary Preparation (2026-09-27)
+
+Release follow-up: commit `1878784` deployed successfully through Vercel. The
+production home page and health endpoint returned HTTP 200. Read-only inspection
+of eight production JavaScript assets found exactly one Supabase host matching
+the local target. No school rows or keys were collected in this check. Server
+environment settings and real authenticated workflows are still unverified.
+No production SQL was run; the database exposure findings remain unresolved.
 
 The local health endpoint now uses the server service key without an anonymous
 fallback, returns no counts or row data, and sanitizes network failures. Six

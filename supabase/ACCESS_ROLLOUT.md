@@ -5,6 +5,20 @@ The actual SQL passed 14 scenarios in an isolated in-memory PostgreSQL engine
 with synthetic tables and the audited grants/policies. No school database was
 contacted. Do not run it in production until the following gates pass.
 
+## Verified Production Preparation (2026-09-27)
+
+- Commit `1878784` was pushed and Vercel reported a successful deployment.
+- Production `/` and `/api/health` responded with HTTP 200 after deployment;
+  health returned `ok: true` and `database: "ok"`.
+- A read-only inspection of eight first-page production JavaScript assets found
+  one Supabase host, matching the locally configured project. No API keys or
+  school rows were printed. This verifies the browser's database target; server
+  environment settings were not independently inspected.
+- No production migration has been applied. An isolated Supabase environment,
+  real-account workflow verification, fresh policy audit, backup, and explicit
+  migration approval remain pending. Do not treat the app deployment as a policy
+  deployment.
+
 ## Scope
 
 - Nine audited public tables: block anonymous row access, even if a permissive

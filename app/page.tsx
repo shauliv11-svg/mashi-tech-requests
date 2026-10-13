@@ -88,6 +88,8 @@ type ClosureDraft = {
   closingMessage: string;
 };
 
+class ClosureSaveError extends Error {}
+
 type SchoolDeviceStatus = "available" | "checked_out" | "repair" | "inactive";
 type SchoolDeviceType = "אייפד" | "אייפד אייר" | "אייפד פרו" | "מחשב" | "ציוד אחר";
 type DeviceLoanStatus = "open" | "returned";
@@ -1424,14 +1426,21 @@ export default function Home() {
       return false;
     }
 
-    const response = await fetch("/api/notifications/request-closed", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({ requestId })
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/notifications/request-closed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ requestId }),
+        signal: AbortSignal.timeout(20000)
+      });
+    } catch {
+      showToast("הבקשה נסגרה, אבל לא התקבל אישור לשליחת המייל. אין צורך לסגור אותה שוב.");
+      return false;
+    }
 
     if (!response.ok) {
       const result = await response.json().catch(() => null);
@@ -1456,6 +1465,15 @@ export default function Home() {
   async function closeRequest(updated: TechRequest, shouldSendEmail: boolean, closureDraft: ClosureDraft) {
     if (!currentUser) return false;
     const closedAtIso = new Date().toISOString();
+    // Email failure must not turn a persisted closure into a failed submission.
+    async function notifyAfterSave(request: TechRequest) {
+      if (!shouldSendEmail || !request.closingMessage?.trim()) return;
+      try {
+        await sendRequestClosedEmail(request.id);
+      } catch {
+        showToast("הבקשה נסגרה, אבל לא התקבל אישור לשליחת המייל. אין צורך לסגור אותה שוב.");
+      }
+    }
     const optimisticClosure: RequestClosure = {
       id: Date.now(),
       requestId: updated.id,
@@ -1471,13 +1489,12 @@ export default function Home() {
     if (!isSupabaseConfigured || !supabase) {
       setRequestClosures((items) => [optimisticClosure, ...items]);
       const saved = await updateRequest(updated, "הבקשה נסגרה ונוספה ליומן הסגירות.");
-      if (saved && shouldSendEmail && saved.closingMessage?.trim()) await sendRequestClosedEmail(saved.id);
+      if (saved) await notifyAfterSave(saved);
       return Boolean(saved);
     }
 
     if (!requestClosuresSupported) {
-      showToast("צריך להריץ את עדכון מסד הנתונים של יומן הסגירות לפני שאפשר לסגור בקשות.");
-      return false;
+      throw new ClosureSaveError("חסר עדכון מסד הנתונים של יומן הסגירות. הבקשה לא נסגרה; יש לפנות לאדמין.");
     }
 
     const { data, error } = await supabase
@@ -1487,8 +1504,9 @@ export default function Home() {
       .single();
 
     if (error || !data) {
-      showToast("שמירת פרטי הסגירה נכשלה. הבקשה נשארה פתוחה.");
-      return false;
+      throw new ClosureSaveError(error?.code === "42501"
+        ? "מסד הנתונים חסם את שמירת יומן הסגירות בגלל הרשאות. הבקשה לא נסגרה; יש לפנות לאדמין לתיקון ההרשאות."
+        : "שמירת פרטי הסגירה נכשלה. הבקשה נשארה פתוחה והטופס נשמר כאן. נסו שוב.");
     }
 
     const saved = await updateRequest(updated, "הבקשה נסגרה ונוספה ליומן הסגירות.");
@@ -1499,7 +1517,7 @@ export default function Home() {
 
     const savedClosure = mapRequestClosure(data);
     setRequestClosures((items) => [savedClosure, ...items]);
-    if (shouldSendEmail && saved.closingMessage?.trim()) await sendRequestClosedEmail(saved.id);
+    await notifyAfterSave(saved);
     return true;
   }
 
@@ -4187,13 +4205,15 @@ function CloseRequestModal({
   const [closureType, setClosureType] = useState<ClosureType | "">("");
   const [otherDetail, setOtherDetail] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const submitting = useRef(false);
   const canSubmit = Boolean(closureType)
     && (closureType !== "אחר" || otherDetail.trim().length > 0)
     && (!sendEmail || message.trim().length > 0);
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="סגירת בקשה">
-      <section className="modal">
+    <div className="modal-backdrop close-request-backdrop" role="dialog" aria-modal="true" aria-label="סגירת בקשה">
+      <section className="modal close-request-modal" aria-busy={saving}>
         <div className="panel-header">
           <h3>סגירת בקשה #{request.id}</h3>
         </div>
@@ -4229,8 +4249,12 @@ function CloseRequestModal({
                 <option value="no">לא, רק לסגור פנימית</option>
               </select>
             </label>
+          </div>
+        </div>
+        <div className="close-request-actions">
+          {saveError && <p className="close-request-error" role="alert">{saveError}</p>}
             <div className="button-row">
-              <button className="btn" type="button" onClick={onCancel}>
+              <button className="btn" type="button" disabled={saving} onClick={onCancel}>
                 ביטול
               </button>
               <button
@@ -4238,26 +4262,36 @@ function CloseRequestModal({
                 type="button"
                 disabled={!canSubmit || saving}
                 onClick={async () => {
-                  if (!closureType) return;
+                  if (!closureType || !canSubmit || submitting.current) return;
+                  submitting.current = true;
                   setSaving(true);
+                  setSaveError("");
                   const closingMessage = sendEmail ? message.trim() : "";
-                  const didClose = await onClose({
-                    ...request,
-                    status: "closed",
-                    internalNote,
-                    closingMessage
-                  }, sendEmail, {
-                    closureType,
-                    otherDetail: closureType === "אחר" ? otherDetail.trim() : undefined,
-                    closingMessage
-                  });
-                  if (!didClose) setSaving(false);
+                  try {
+                    const didClose = await onClose({
+                      ...request,
+                      status: "closed",
+                      internalNote,
+                      closingMessage
+                    }, sendEmail, {
+                      closureType,
+                      otherDetail: closureType === "אחר" ? otherDetail.trim() : undefined,
+                      closingMessage
+                    });
+                    if (!didClose) setSaveError("הסגירה לא נשמרה. הנתונים שהקלדת נשארו בטופס; אפשר לנסות שוב.");
+                  } catch (error) {
+                    setSaveError(error instanceof ClosureSaveError
+                      ? error.message
+                      : "לא ניתן היה להשלים את השמירה. בדקו את החיבור ונסו שוב; לפני ניסיון נוסף אפשר לבדוק אם הבקשה כבר נסגרה.");
+                  } finally {
+                    submitting.current = false;
+                    setSaving(false);
+                  }
                 }}
               >
                 {saving ? "שומרת..." : "סגירה ושמירה"}
               </button>
             </div>
-          </div>
         </div>
       </section>
     </div>
